@@ -318,7 +318,14 @@ class _MonthPage extends StatelessWidget {
                   children: List<Widget>.generate(rowCount * 7, (index) {
                     final dayNumber = index - leadingEmptyCells + 1;
                     if (dayNumber < 1 || dayNumber > dayCount) {
-                      return const SizedBox.shrink();
+                      return const DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.fromBorderSide(
+                            BorderSide(color: Color(0xFFDFE3DF), width: 0.8),
+                          ),
+                        ),
+                      );
                     }
 
                     final date = DateTime(month.year, month.month, dayNumber);
