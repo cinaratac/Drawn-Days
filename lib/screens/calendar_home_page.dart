@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +12,8 @@ import '../data/doodle_repository.dart';
 import '../l10n/app_strings.dart';
 import '../models/app_settings.dart';
 import '../models/doodle.dart';
+import '../services/reminder_service.dart';
+import '../services/story_share_service.dart';
 import '../services/today_home_widget_service.dart';
 import '../utils/calendar_utils.dart';
 import '../widgets/day_flow.dart';
@@ -22,18 +22,20 @@ import '../widgets/month_calendar.dart';
 import '../widgets/week_calendar.dart';
 import 'settings_page.dart';
 
-enum DairryView { month, week, flow }
+enum CalendarView { month, week, flow }
 
 class CalendarHomePage extends StatefulWidget {
   const CalendarHomePage({
     super.key,
     required this.repository,
+    required this.reminderService,
     required this.settings,
     required this.onSettingsChanged,
     this.today,
   });
 
   final DoodleRepository repository;
+  final ReminderService reminderService;
   final AppSettings settings;
   final Future<bool> Function(AppSettings settings) onSettingsChanged;
   final DateTime? today;
@@ -47,14 +49,15 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   late DateTime _today;
   late DateTime _focusDate;
   late final ValueNotifier<DateTime> _visibleMonth;
-  late DairryView _view;
+  late CalendarView _view;
   int _todayRequest = 0;
   Map<String, Doodle> _doodles = <String, Doodle>{};
   bool _loading = true;
-  final GlobalKey _exportBoundaryKey = GlobalKey();
   StreamSubscription<Uri?>? _widgetClickSubscription;
+  StreamSubscription<Uri>? _notificationClickSubscription;
   bool _widgetEditorPending = false;
   bool _openingWidgetEditor = false;
+  bool _sharing = false;
 
   AppStrings get _s => AppStrings(widget.settings.language);
   bool get _mondayFirst =>
@@ -67,12 +70,13 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     _today = dateOnly(widget.today ?? DateTime.now());
     _focusDate = _today;
     _view = switch (widget.settings.startView) {
-      StartViewPreference.month => DairryView.month,
-      StartViewPreference.week => DairryView.week,
-      StartViewPreference.flow => DairryView.flow,
+      StartViewPreference.month => CalendarView.month,
+      StartViewPreference.week => CalendarView.week,
+      StartViewPreference.flow => CalendarView.flow,
     };
     _visibleMonth = ValueNotifier<DateTime>(_today);
     _initializeHomeWidgetLink();
+    _initializeNotificationLink();
     _loadDoodles();
   }
 
@@ -80,7 +84,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   void didUpdateWidget(covariant CalendarHomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.settings.language != widget.settings.language && !_loading) {
-      _syncTodayWidget();
+      _scheduleTodayWidgetSync();
     }
   }
 
@@ -88,6 +92,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _widgetClickSubscription?.cancel();
+    _notificationClickSubscription?.cancel();
     _visibleMonth.dispose();
     super.dispose();
   }
@@ -104,7 +109,11 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       _doodles = doodles;
       _loading = false;
     });
-    await _syncTodayWidget();
+    final notificationLaunchUri = await widget.reminderService
+        .takeInitialLaunchUri();
+    if (!mounted) return;
+    _handleEditorLaunch(notificationLaunchUri);
+    _scheduleTodayWidgetSync();
     _openPendingWidgetEditor();
   }
 
@@ -123,9 +132,20 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     }
   }
 
+  void _initializeNotificationLink() {
+    _notificationClickSubscription = widget.reminderService.launchUris.listen(
+      _handleEditorLaunch,
+      onError: (_) {},
+    );
+  }
+
   void _handleWidgetLaunch(Uri? uri) {
+    _handleEditorLaunch(uri);
+  }
+
+  void _handleEditorLaunch(Uri? uri) {
     if (uri == null ||
-        uri.scheme != 'dairry' ||
+        uri.scheme != 'drawndays' ||
         uri.host != 'draw' ||
         !uri.pathSegments.contains('today')) {
       return;
@@ -144,7 +164,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       if (wasFocusedOnToday) _focusDate = refreshedToday;
     });
     if (wasFocusedOnToday) _setVisibleMonth(refreshedToday);
-    if (!_loading) unawaited(_syncTodayWidget());
+    if (!_loading) _scheduleTodayWidgetSync();
   }
 
   void _openPendingWidgetEditor() {
@@ -159,6 +179,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       _openingWidgetEditor = false;
       _openPendingWidgetEditor();
     });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   Future<void> _syncTodayWidget() {
@@ -169,27 +190,33 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     );
   }
 
+  void _scheduleTodayWidgetSync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_syncTodayWidget());
+    });
+  }
+
   bool get _canMoveForward {
     return switch (_view) {
-      DairryView.month => true,
-      DairryView.week => !startOfWeek(
+      CalendarView.month => true,
+      CalendarView.week => !startOfWeek(
         _focusDate,
         mondayFirst: _mondayFirst,
       ).add(const Duration(days: 7)).isAfter(_today),
-      DairryView.flow => dateOnly(_focusDate).isBefore(_today),
+      CalendarView.flow => dateOnly(_focusDate).isBefore(_today),
     };
   }
 
   bool get _canMoveBack => switch (_view) {
-    DairryView.flow => _today.difference(dateOnly(_focusDate)).inDays < 3649,
+    CalendarView.flow => _today.difference(dateOnly(_focusDate)).inDays < 3649,
     _ => true,
   };
 
   bool get _canUseLeftArrow =>
-      _view == DairryView.flow ? _canMoveForward : _canMoveBack;
+      _view == CalendarView.flow ? _canMoveForward : _canMoveBack;
 
   bool get _canUseRightArrow =>
-      _view == DairryView.flow ? _canMoveBack : _canMoveForward;
+      _view == CalendarView.flow ? _canMoveBack : _canMoveForward;
 
   void _selectionHaptic() {
     if (widget.settings.hapticsEnabled) HapticFeedback.selectionClick();
@@ -199,20 +226,24 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     if (widget.settings.hapticsEnabled) HapticFeedback.lightImpact();
   }
 
-  void _selectView(DairryView view) {
+  void _selectView(CalendarView view) {
     if (_view == view) return;
-    _selectionHaptic();
     setState(() {
       _view = view;
-      if (view == DairryView.flow && isAfterDay(_focusDate, _today)) {
+      if (view == CalendarView.flow && isAfterDay(_focusDate, _today)) {
         _focusDate = _today;
       }
     });
-    if (view == DairryView.month) _setVisibleMonth(_focusDate);
+    if (view == CalendarView.month) _setVisibleMonth(_focusDate);
+    if (widget.settings.hapticsEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        HapticFeedback.selectionClick();
+      });
+    }
   }
 
   void _movePeriod(int direction) {
-    if (_view == DairryView.flow) {
+    if (_view == CalendarView.flow) {
       if (direction > 0 && !_canMoveBack) return;
       if (direction < 0 && !_canMoveForward) return;
       _selectionHaptic();
@@ -222,7 +253,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       return;
     }
 
-    if (_view == DairryView.month) {
+    if (_view == CalendarView.month) {
       final visibleMonth = _visibleMonth.value;
       final targetMonth = _dateInMonth(
         DateTime(visibleMonth.year, visibleMonth.month + direction),
@@ -240,7 +271,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
 
   void _goToToday() {
     _selectionHaptic();
-    final monthIsVisible = _view == DairryView.month;
+    final monthIsVisible = _view == CalendarView.month;
     setState(() {
       _focusDate = _today;
       _todayRequest++;
@@ -272,7 +303,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   }
 
   void _changeFlowDate(DateTime date) {
-    if (_view != DairryView.flow || isSameDay(date, _focusDate)) return;
+    if (_view != CalendarView.flow || isSameDay(date, _focusDate)) return;
     setState(() => _focusDate = dateOnly(date));
   }
 
@@ -293,21 +324,44 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       await widget.repository.delete(key);
       if (!mounted) return;
       setState(() => _doodles.remove(key));
-      if (isSameDay(date, _today)) await _syncTodayWidget();
+      if (isSameDay(date, _today)) {
+        _scheduleTodayWidgetSync();
+        unawaited(
+          widget.reminderService.updateDate(
+            date: date,
+            hasDoodle: false,
+            settings: widget.settings,
+          ),
+        );
+      }
       return;
     }
 
     await widget.repository.save(key, result);
     if (!mounted) return;
     setState(() => _doodles[key] = result);
-    if (isSameDay(date, _today)) await _syncTodayWidget();
+    if (isSameDay(date, _today)) {
+      _scheduleTodayWidgetSync();
+      unawaited(
+        widget.reminderService.updateDate(
+          date: date,
+          hasDoodle: true,
+          settings: widget.settings,
+        ),
+      );
+    }
   }
 
   Future<void> _clearDoodles() async {
     await widget.repository.clearAll();
     if (!mounted) return;
     setState(() => _doodles = <String, Doodle>{});
-    await _syncTodayWidget();
+    _scheduleTodayWidgetSync();
+    await widget.reminderService.updateDate(
+      date: _today,
+      hasDoodle: false,
+      settings: widget.settings,
+    );
   }
 
   Rect _shareOrigin() {
@@ -316,29 +370,77 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     return box.localToGlobal(Offset.zero) & box.size;
   }
 
-  Future<void> _exportCalendar() async {
-    await WidgetsBinding.instance.endOfFrame;
-    final boundary =
-        _exportBoundaryKey.currentContext?.findRenderObject()
-            as RenderRepaintBoundary?;
-    if (boundary == null) throw StateError('Calendar is not ready');
-    final image = await boundary.toImage(pixelRatio: 3);
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    if (data == null) throw StateError('Calendar image could not be created');
-    final bytes = data.buffer.asUint8List();
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile.fromData(bytes, mimeType: 'image/png')],
-        fileNameOverrides: ['dairry-calendar.png'],
-        sharePositionOrigin: _shareOrigin(),
+  Future<void> _openStoryShare() async {
+    if (_sharing) return;
+    final format = await showModalBottomSheet<StoryShareFormat>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _StoryShareSheet(strings: _s),
+    );
+    if (format == null || !mounted) return;
+
+    final todayDoodle = _doodles[dateKey(_today)];
+    if (format == StoryShareFormat.todaySquare && todayDoodle == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_s.noDrawingToday)));
+      return;
+    }
+
+    final shareMonth = DateTime(_focusDate.year, _focusDate.month);
+    setState(() => _sharing = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final progress = messenger.showSnackBar(
+      SnackBar(
+        content: Text(_s.preparingShare),
+        duration: const Duration(days: 1),
       ),
     );
+
+    try {
+      final bytes = await switch (format) {
+        StoryShareFormat.monthGrid => StoryShareService.renderMonthGrid(
+          month: shareMonth,
+          doodles: _doodles,
+        ),
+        StoryShareFormat.todaySquare => StoryShareService.renderTodaySquare(
+          doodle: todayDoodle!,
+        ),
+        StoryShareFormat.recentWeek => StoryShareService.renderRecentWeek(
+          today: _today,
+          doodles: _doodles,
+          language: widget.settings.language,
+        ),
+      };
+      progress.close();
+      if (!mounted) return;
+      final fileName = switch (format) {
+        StoryShareFormat.monthGrid =>
+          'drawn-days-${shareMonth.year}-${shareMonth.month.toString().padLeft(2, '0')}.png',
+        StoryShareFormat.todaySquare => 'drawn-days-${dateKey(_today)}.png',
+        StoryShareFormat.recentWeek =>
+          'drawn-days-last-7-days-${dateKey(_today)}.png',
+      };
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile.fromData(bytes, mimeType: 'image/png')],
+          fileNameOverrides: [fileName],
+          sharePositionOrigin: _shareOrigin(),
+        ),
+      );
+    } catch (_) {
+      progress.close();
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(_s.operationFailed)));
+      }
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
   }
 
   Future<void> _createBackup() async {
     final encoded = jsonEncode(<String, Object?>{
-      'format': 'dairry-backup',
+      'format': 'drawn-days-backup',
       'version': 1,
       'createdAt': DateTime.now().toIso8601String(),
       'settings': widget.settings.toJson(),
@@ -348,7 +450,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     await SharePlus.instance.share(
       ShareParams(
         files: [XFile.fromData(bytes, mimeType: 'application/json')],
-        fileNameOverrides: ['dairry-${dateKey(_today)}.dairry'],
+        fileNameOverrides: ['drawn-days-${dateKey(_today)}.json'],
         sharePositionOrigin: _shareOrigin(),
       ),
     );
@@ -360,7 +462,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     try {
       final bytes = await file.readAsBytes();
       final decoded = jsonDecode(utf8.decode(bytes));
-      if (decoded is! Map || decoded['format'] != 'dairry-backup') {
+      if (decoded is! Map || decoded['format'] != 'drawn-days-backup') {
         return false;
       }
       final rawDoodles = decoded['doodles'];
@@ -375,13 +477,18 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       }
       final restoredSettings = AppSettings.fromJson(
         Map<String, Object?>.from(rawSettings),
-      );
+      ).copyWith(onboardingCompleted: widget.settings.onboardingCompleted);
       final settingsApplied = await widget.onSettingsChanged(restoredSettings);
       if (!settingsApplied) return false;
       await widget.repository.replaceAll(restoredDoodles);
       if (!mounted) return true;
       setState(() => _doodles = restoredDoodles);
-      await _syncTodayWidget();
+      _scheduleTodayWidgetSync();
+      await widget.reminderService.updateDate(
+        date: _today,
+        hasDoodle: restoredDoodles.containsKey(dateKey(_today)),
+        settings: restoredSettings,
+      );
       return true;
     } on FormatException {
       return false;
@@ -399,7 +506,6 @@ class _CalendarHomePageState extends State<CalendarHomePage>
           doodleCount: _doodles.length,
           onSettingsChanged: widget.onSettingsChanged,
           onClearDoodles: _clearDoodles,
-          onExportCalendar: _exportCalendar,
           onCreateBackup: _createBackup,
           onRestoreBackup: _restoreBackup,
         ),
@@ -412,40 +518,46 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       index: _view.index,
       sizing: StackFit.expand,
       children: [
-        MonthCalendar(
-          key: const ValueKey('month-pages'),
-          month: _focusDate,
-          today: _today,
-          todayRequest: _todayRequest,
-          isActive: _view == DairryView.month,
-          doodles: _doodles,
-          onDayTap: _editDay,
-          onVisibleMonthChanged: _setVisibleMonth,
-          onMonthChanged: _changeMonth,
-          language: widget.settings.language,
-          mondayFirst: _mondayFirst,
+        RepaintBoundary(
+          child: MonthCalendar(
+            key: const ValueKey('month-pages'),
+            month: _focusDate,
+            today: _today,
+            todayRequest: _todayRequest,
+            isActive: _view == CalendarView.month,
+            doodles: _doodles,
+            onDayTap: _editDay,
+            onVisibleMonthChanged: _setVisibleMonth,
+            onMonthChanged: _changeMonth,
+            language: widget.settings.language,
+            mondayFirst: _mondayFirst,
+          ),
         ),
-        WeekCalendar(
-          key: const ValueKey('week-pages'),
-          focusDate: _focusDate,
-          today: _today,
-          todayRequest: _todayRequest,
-          isActive: _view == DairryView.week,
-          doodles: _doodles,
-          onDayTap: _editDay,
-          language: widget.settings.language,
-          mondayFirst: _mondayFirst,
+        RepaintBoundary(
+          child: WeekCalendar(
+            key: const ValueKey('week-pages'),
+            focusDate: _focusDate,
+            today: _today,
+            todayRequest: _todayRequest,
+            isActive: _view == CalendarView.week,
+            doodles: _doodles,
+            onDayTap: _editDay,
+            language: widget.settings.language,
+            mondayFirst: _mondayFirst,
+          ),
         ),
-        DayFlow(
-          key: const ValueKey('day-flow'),
-          today: _today,
-          focusDate: _focusDate,
-          todayRequest: _todayRequest,
-          isActive: _view == DairryView.flow,
-          doodles: _doodles,
-          onDayTap: _editDay,
-          onVisibleDateChanged: _changeFlowDate,
-          language: widget.settings.language,
+        RepaintBoundary(
+          child: DayFlow(
+            key: const ValueKey('day-flow'),
+            today: _today,
+            focusDate: _focusDate,
+            todayRequest: _todayRequest,
+            isActive: _view == CalendarView.flow,
+            doodles: _doodles,
+            onDayTap: _editDay,
+            onVisibleDateChanged: _changeFlowDate,
+            language: widget.settings.language,
+          ),
         ),
       ],
     );
@@ -455,49 +567,45 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      bottomNavigationBar: DairryBottomNavigation(
+      bottomNavigationBar: CalendarBottomNavigation(
         selected: _view,
         onSelected: _selectView,
         strings: _s,
       ),
-      body: RepaintBoundary(
-        key: _exportBoundaryKey,
-        child: ColoredBox(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    child: _CalendarAppBar(
-                      onToday: _goToToday,
-                      onSettings: _openSettings,
-                      onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
-                      onForward: _canUseRightArrow
-                          ? () => _movePeriod(1)
-                          : null,
-                      strings: _s,
-                    ),
+      body: ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: _CalendarAppBar(
+                    onToday: _goToToday,
+                    onShare: _sharing ? null : _openStoryShare,
+                    onSettings: _openSettings,
+                    onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
+                    onForward: _canUseRightArrow ? () => _movePeriod(1) : null,
+                    strings: _s,
                   ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _loading
-                        ? const Center(
-                            key: ValueKey('loading'),
-                            child: SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : _buildCalendarViews(),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _loading
+                      ? const Center(
+                          key: ValueKey('loading'),
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : _buildCalendarViews(),
+                ),
+              ],
             ),
           ),
         ),
@@ -509,6 +617,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
 class _CalendarAppBar extends StatelessWidget {
   const _CalendarAppBar({
     required this.onToday,
+    required this.onShare,
     required this.onSettings,
     required this.onBack,
     required this.onForward,
@@ -516,6 +625,7 @@ class _CalendarAppBar extends StatelessWidget {
   });
 
   final VoidCallback onToday;
+  final VoidCallback? onShare;
   final VoidCallback onSettings;
   final VoidCallback? onBack;
   final VoidCallback? onForward;
@@ -523,58 +633,101 @@ class _CalendarAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          'dairry.',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontSize: 18, letterSpacing: -0.4),
-        ),
-        const SizedBox(width: 9),
-        Container(
-          width: 5,
-          height: 5,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 5),
-        IconButton(
-          key: const Key('open-settings'),
-          tooltip: strings.settings,
-          onPressed: onSettings,
-          icon: const Icon(Icons.tune_rounded, size: 20),
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        TextButton.icon(
-          key: const Key('go-today'),
-          onPressed: onToday,
-          icon: const Icon(Icons.near_me_outlined, size: 17),
-          label: Text(strings.today),
-          style: TextButton.styleFrom(
-            foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-          ),
-        ),
-        const Spacer(),
-        if (onBack != null)
-          _NavigationButton(
-            key: const Key('previous-period'),
-            icon: Icons.chevron_left_rounded,
-            onTap: onBack,
-          ),
-        const SizedBox(width: 7),
-        if (onForward != null)
-          _NavigationButton(
-            key: const Key('next-period'),
-            icon: Icons.chevron_right_rounded,
-            onTap: onForward,
-          )
-        else
-          const SizedBox(width: 40, height: 40),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 380;
+        return Row(
+          children: [
+            SizedBox(
+              width: compact ? 108 : 120,
+              height: 40,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Drawn Days',
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontSize: 18,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(width: compact ? 2 : 4),
+            SizedBox(
+              width: compact ? 38 : 44,
+              height: 40,
+              child: IconButton(
+                key: const Key('open-settings'),
+                tooltip: strings.settings,
+                onPressed: onSettings,
+                icon: const Icon(Icons.tune_rounded, size: 20),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                constraints: const BoxConstraints.tightFor(
+                  width: 40,
+                  height: 40,
+                ),
+                padding: EdgeInsets.zero,
+              ),
+            ),
+            SizedBox(
+              width: compact ? 68 : 82,
+              height: 40,
+              child: TextButton.icon(
+                key: const Key('go-today'),
+                onPressed: onToday,
+                icon: Icon(Icons.near_me_outlined, size: compact ? 16 : 17),
+                label: Text(
+                  strings.today,
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant,
+                  minimumSize: Size.zero,
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: compact ? 38 : 40,
+              height: 40,
+              child: IconButton(
+                key: const Key('share-story'),
+                tooltip: strings.share,
+                onPressed: onShare,
+                icon: const Icon(Icons.ios_share_rounded, size: 19),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                constraints: BoxConstraints.tightFor(
+                  width: compact ? 38 : 40,
+                  height: 40,
+                ),
+                padding: EdgeInsets.zero,
+              ),
+            ),
+            const Spacer(),
+            _NavigationButton(
+              key: const Key('previous-period'),
+              icon: Icons.chevron_left_rounded,
+              onTap: onBack,
+            ),
+            SizedBox(width: compact ? 2 : 7),
+            _NavigationButton(
+              key: const Key('next-period'),
+              icon: Icons.chevron_right_rounded,
+              onTap: onForward,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -610,16 +763,104 @@ class _NavigationButton extends StatelessWidget {
   }
 }
 
-class DairryBottomNavigation extends StatelessWidget {
-  const DairryBottomNavigation({
+class _StoryShareSheet extends StatelessWidget {
+  const _StoryShareSheet({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+              child: Text(
+                strings.shareDrawing,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+            _StoryShareOption(
+              key: const Key('share-month-story'),
+              icon: Icons.grid_view_rounded,
+              title: strings.monthStory,
+              subtitle: strings.monthStorySubtitle,
+              onTap: () =>
+                  Navigator.of(context).pop(StoryShareFormat.monthGrid),
+            ),
+            const SizedBox(height: 8),
+            _StoryShareOption(
+              key: const Key('share-today-square'),
+              icon: Icons.crop_square_rounded,
+              title: strings.todaySquare,
+              subtitle: strings.todaySquareSubtitle,
+              onTap: () =>
+                  Navigator.of(context).pop(StoryShareFormat.todaySquare),
+            ),
+            const SizedBox(height: 8),
+            _StoryShareOption(
+              key: const Key('share-recent-week'),
+              icon: Icons.view_module_rounded,
+              title: strings.recentWeekStory,
+              subtitle: strings.recentWeekStorySubtitle,
+              onTap: () =>
+                  Navigator.of(context).pop(StoryShareFormat.recentWeek),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryShareOption extends StatelessWidget {
+  const _StoryShareOption({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.hardEdge,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Icon(icon, color: colors.primary),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class CalendarBottomNavigation extends StatelessWidget {
+  const CalendarBottomNavigation({
     super.key,
     required this.selected,
     required this.onSelected,
     required this.strings,
   });
 
-  final DairryView selected;
-  final ValueChanged<DairryView> onSelected;
+  final CalendarView selected;
+  final ValueChanged<CalendarView> onSelected;
   final AppStrings strings;
 
   @override
@@ -635,7 +876,7 @@ class DairryBottomNavigation extends StatelessWidget {
           surfaceTintColor: Colors.transparent,
           shadowColor: Colors.black.withValues(alpha: 0.14),
           borderRadius: BorderRadius.circular(24),
-          clipBehavior: Clip.antiAlias,
+          clipBehavior: Clip.hardEdge,
           child: NavigationBarTheme(
             data: NavigationBarThemeData(
               iconTheme: WidgetStateProperty.resolveWith((states) {
@@ -648,6 +889,7 @@ class DairryBottomNavigation extends StatelessWidget {
             ),
             child: NavigationBar(
               height: 66,
+              animationDuration: Duration.zero,
               elevation: 0,
               backgroundColor: Colors.transparent,
               surfaceTintColor: Colors.transparent,
@@ -666,7 +908,7 @@ class DairryBottomNavigation extends StatelessWidget {
               }),
               selectedIndex: selected.index,
               onDestinationSelected: (index) =>
-                  onSelected(DairryView.values[index]),
+                  onSelected(CalendarView.values[index]),
               destinations: [
                 NavigationDestination(
                   key: const Key('view-month'),

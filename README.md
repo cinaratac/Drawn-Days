@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-# dairryapp
+# Drawn Days
 
 A wordless visual calendar journal.
 

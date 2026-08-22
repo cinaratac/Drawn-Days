@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
@@ -199,7 +200,9 @@ class _MonthCalendarState extends State<MonthCalendar> {
             padding: const EdgeInsets.only(bottom: _navigationClearance),
             itemCount: _monthCount,
             itemExtent: _itemExtent,
-            cacheExtent: _itemExtent * 1.5,
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: false,
+            scrollCacheExtent: ScrollCacheExtent.pixels(_itemExtent * 1.5),
             itemBuilder: (context, index) {
               final month = _monthFor(index);
               return RepaintBoundary(
@@ -306,39 +309,38 @@ class _MonthPage extends StatelessWidget {
 
               return SizedBox(
                 height: gridHeight,
-                child: GridView.count(
-                  padding: EdgeInsets.zero,
-                  physics: const NeverScrollableScrollPhysics(),
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: false,
-                  crossAxisCount: 7,
-                  mainAxisSpacing: 0,
-                  crossAxisSpacing: 0,
-                  childAspectRatio: 1,
-                  children: List<Widget>.generate(rowCount * 7, (index) {
-                    final dayNumber = index - leadingEmptyCells + 1;
-                    if (dayNumber < 1 || dayNumber > dayCount) {
-                      return const DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.fromBorderSide(
-                            BorderSide(color: Color(0xFFDFE3DF), width: 0.8),
-                          ),
-                        ),
-                      );
-                    }
+                child: Column(
+                  children: List<Widget>.generate(rowCount, (row) {
+                    return SizedBox(
+                      height: cellSize,
+                      child: Row(
+                        children: List<Widget>.generate(7, (column) {
+                          final index = (row * 7) + column;
+                          final dayNumber = index - leadingEmptyCells + 1;
+                          if (dayNumber < 1 || dayNumber > dayCount) {
+                            return const Expanded(child: _EmptyMonthDayCell());
+                          }
 
-                    final date = DateTime(month.year, month.month, dayNumber);
-                    final future = isAfterDay(date, today);
-                    final doodle = doodles[dateKey(date)];
+                          final date = DateTime(
+                            month.year,
+                            month.month,
+                            dayNumber,
+                          );
+                          final future = isAfterDay(date, today);
+                          final key = dateKey(date);
 
-                    return _MonthDayCell(
-                      key: Key('day-${dateKey(date)}'),
-                      date: date,
-                      today: isSameDay(date, today),
-                      future: future,
-                      doodle: doodle,
-                      onTap: future ? null : () => onDayTap(date),
+                          return Expanded(
+                            child: _MonthDayCell(
+                              key: Key('day-$key'),
+                              date: date,
+                              today: isSameDay(date, today),
+                              future: future,
+                              doodle: doodles[key],
+                              onTap: future ? null : () => onDayTap(date),
+                            ),
+                          );
+                        }),
+                      ),
                     );
                   }),
                 ),
@@ -346,6 +348,22 @@ class _MonthPage extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyMonthDayCell extends StatelessWidget {
+  const _EmptyMonthDayCell();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.fromBorderSide(
+          BorderSide(color: Color(0xFFDFE3DF), width: 0.8),
+        ),
       ),
     );
   }
@@ -376,26 +394,25 @@ class _MonthDayCell extends StatelessWidget {
       button: !future,
       enabled: !future,
       label: future ? '${date.day}, henüz yaşanmadı' : '${date.day}',
-      child: Material(
-        color: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.zero,
-          side: BorderSide(color: borderColor, width: today ? 1.6 : 0.8),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.fromBorderSide(
+              BorderSide(color: borderColor, width: today ? 1.6 : 0.8),
+            ),
+          ),
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
               if (doodle != null)
                 Positioned.fill(
                   top: 12,
-                  child: Opacity(
-                    opacity: future ? 0.35 : 1,
-                    child: DoodlePreview(
-                      doodle: doodle!,
-                      padding: const EdgeInsets.fromLTRB(3, 2, 3, 3),
-                    ),
+                  child: DoodlePreview(
+                    doodle: doodle!,
+                    padding: const EdgeInsets.fromLTRB(3, 2, 3, 3),
                   ),
                 ),
               Positioned(
@@ -415,20 +432,20 @@ class _MonthDayCell extends StatelessWidget {
                 ),
               ),
               if (future)
-                Center(
+                const Center(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 12),
+                    padding: EdgeInsets.only(top: 12),
                     child: Icon(
                       Icons.lock_outline_rounded,
                       size: 15,
-                      color: const Color(0xFF9AA39D),
+                      color: Color(0xFF9AA39D),
                     ),
                   ),
                 ),
               if (today && doodle == null)
                 Center(
                   child: Padding(
-                    padding: EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.only(top: 12),
                     child: Icon(
                       Icons.add_rounded,
                       size: 18,

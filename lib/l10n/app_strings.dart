@@ -10,6 +10,26 @@ class AppStrings {
 
   String get settings => t('Ayarlar', 'Settings');
   String get today => t('Bugün', 'Today');
+  String get share => t('Paylaş', 'Share');
+  String get shareDrawing => t('Çizimi paylaş', 'Share drawing');
+  String get monthStory => t('Ayın tamamı', 'Full month');
+  String get monthStorySubtitle => t(
+    'Bu ayın günlerini 4×8 Story ızgarasında paylaş',
+    'Share this month in a 4×8 Story grid',
+  );
+  String get todaySquare => t('Bugünün çizimi', "Today's drawing");
+  String get todaySquareSubtitle => t(
+    'Bugünün çizimini kare 1:1 görsel olarak paylaş',
+    "Share today's drawing as a square 1:1 image",
+  );
+  String get recentWeekStory => t('Son 7 gün', 'Last 7 days');
+  String get recentWeekStorySubtitle => t(
+    'Son yedi günü 2×4 Story ızgarasında paylaş',
+    'Share the last seven days in a 2×4 Story grid',
+  );
+  String get preparingShare => t('Görsel hazırlanıyor…', 'Preparing image…');
+  String get noDrawingToday =>
+      t('Bugün henüz bir çizim yok.', 'There is no drawing for today yet.');
   String get month => t('Ay', 'Month');
   String get week => t('Hafta', 'Week');
   String get flow => t('Akış', 'Flow');
@@ -29,8 +49,8 @@ class AppStrings {
   String get sunday => t('Pazar', 'Sunday');
   String get dailyReminder => t('Günlük hatırlatma', 'Daily reminder');
   String get reminderSubtitle => t(
-    'Bugünün karesini çizmen için nazik bir bildirim',
-    'A gentle nudge to draw today’s square',
+    'Bugünün çizimi yapılmadıysa sana bir karalama hatırlatması gönderir',
+    'Sends a scribble reminder only when today has not been drawn',
   );
   String get reminderTime => t('Hatırlatma saati', 'Reminder time');
   String get sound => t('Ses', 'Sound');
@@ -41,12 +61,6 @@ class AppStrings {
     'Dokunuşlarda ve hatırlatmalarda hafif titreşim',
     'Light feedback for touches and reminders',
   );
-  String get exportImage =>
-      t('Takvimi görsel olarak dışa aktar', 'Export calendar as image');
-  String get exportImageSubtitle => t(
-    'Ekrandaki takvim görünümünü PNG olarak paylaş',
-    'Share the visible calendar view as a PNG',
-  );
   String get createBackup => t('Yedek oluştur', 'Create backup');
   String get createBackupSubtitle => t(
     'Çizimlerini ve ayarlarını tek dosyada sakla',
@@ -54,7 +68,7 @@ class AppStrings {
   );
   String get restoreBackup => t('Yedeği geri yükle', 'Restore backup');
   String get restoreBackupSubtitle =>
-      t('Bir dairry yedek dosyası seç', 'Choose a dairry backup file');
+      t('Bir Drawn Days yedek dosyası seç', 'Choose a Drawn Days backup file');
   String get languageLabel => t('Dil', 'Language');
   String get turkish => t('Türkçe', 'Turkish');
   String get english => t('İngilizce', 'English');
@@ -78,8 +92,8 @@ class AppStrings {
   );
   String get backupRestored => t('Yedek geri yüklendi.', 'Backup restored.');
   String get backupInvalid => t(
-    'Bu dosya geçerli bir dairry yedeği değil.',
-    'This is not a valid dairry backup.',
+    'Bu dosya geçerli bir Drawn Days yedeği değil.',
+    'This is not a valid Drawn Days backup.',
   );
   String get operationFailed =>
       t('İşlem tamamlanamadı.', 'The operation could not be completed.');

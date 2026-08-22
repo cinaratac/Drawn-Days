@@ -1,4 +1,4 @@
-package com.dairry.dairryapp
+package com.drawndays.app
 
 import android.appwidget.AppWidgetManager
 import android.content.Context
@@ -13,14 +13,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class DairryTodayWidgetProvider : HomeWidgetProvider() {
+class DrawnDaysTodayWidgetProvider : HomeWidgetProvider() {
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
         widgetData: SharedPreferences,
     ) {
-        val language = widgetData.getString("widget_language", "turkish") ?: "turkish"
+        val language = widgetData.getString("widget_language", "english") ?: "english"
         val locale = if (language == "english") Locale.US else Locale("tr", "TR")
         val now = Date()
         val currentDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
@@ -34,7 +34,7 @@ class DairryTodayWidgetProvider : HomeWidgetProvider() {
         val imagePath = widgetData.getString("today_doodle", null)
 
         appWidgetIds.forEach { widgetId ->
-            val views = RemoteViews(context.packageName, R.layout.dairry_today_widget).apply {
+            val views = RemoteViews(context.packageName, R.layout.drawn_days_today_widget).apply {
                 setTextViewText(R.id.widget_day, day)
                 setTextViewText(R.id.widget_weekday, weekday)
                 setTextViewText(R.id.widget_prompt, prompt)
@@ -58,7 +58,7 @@ class DairryTodayWidgetProvider : HomeWidgetProvider() {
                 val launchIntent = HomeWidgetLaunchIntent.getActivity(
                     context,
                     MainActivity::class.java,
-                    Uri.parse("dairry://draw/today?homeWidget"),
+                    Uri.parse("drawndays://draw/today?homeWidget"),
                 )
                 setOnClickPendingIntent(R.id.widget_container, launchIntent)
             }

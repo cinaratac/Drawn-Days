@@ -17,5 +17,5 @@ der_path="$xcent_path.der"
 
 /usr/bin/plutil -create xml1 "$xcent_path"
 /usr/bin/plutil -insert application-identifier -string "$team_id.$bundle_id" "$xcent_path"
-/usr/bin/plutil -insert 'com\.apple\.security\.application-groups' -xml '<array><string>group.com.dairry.dairryapp</string></array>' "$xcent_path"
+/usr/bin/plutil -insert 'com\.apple\.security\.application-groups' -xml '<array><string>group.com.drawndays.app</string></array>' "$xcent_path"
 /usr/bin/derq query -f xml -i "$xcent_path" -o "$der_path" --raw

@@ -1,18 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'data/doodle_repository.dart';
 import 'data/settings_repository.dart';
 import 'models/app_settings.dart';
 import 'screens/calendar_home_page.dart';
+import 'screens/onboarding_page.dart';
 import 'services/reminder_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const DairryApp());
+  runApp(const DrawnDaysApp());
 }
 
-class DairryApp extends StatefulWidget {
-  const DairryApp({
+class DrawnDaysApp extends StatefulWidget {
+  const DrawnDaysApp({
     super.key,
     this.repository,
     this.settingsRepository,
@@ -26,10 +29,10 @@ class DairryApp extends StatefulWidget {
   final DateTime? today;
 
   @override
-  State<DairryApp> createState() => _DairryAppState();
+  State<DrawnDaysApp> createState() => _DrawnDaysAppState();
 }
 
-class _DairryAppState extends State<DairryApp> {
+class _DrawnDaysAppState extends State<DrawnDaysApp> {
   late final DoodleRepository _doodleRepository;
   late final SettingsRepository _settingsRepository;
   late final ReminderService _reminderService;
@@ -55,15 +58,29 @@ class _DairryAppState extends State<DairryApp> {
 
   Future<void> _loadSettings() async {
     final settings = await _settingsRepository.load();
-    await _reminderService.initialize();
-    if (settings.dailyReminderEnabled) {
-      await _reminderService.apply(settings);
-    }
     if (!mounted) return;
     setState(() {
       _settings = settings;
       _settingsLoaded = true;
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refreshRemindersAfterLaunch(settings));
+    });
+  }
+
+  Future<void> _refreshRemindersAfterLaunch(AppSettings settings) async {
+    try {
+      final doodles = await _doodleRepository.loadAll();
+      await _reminderService.initialize();
+      await _reminderService.apply(
+        settings,
+        completedDateKeys: doodles.keys.toSet(),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Reminder refresh after launch failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   Future<bool> _updateSettings(AppSettings settings) async {
@@ -75,7 +92,11 @@ class _DairryAppState extends State<DairryApp> {
         settings.hapticsEnabled != _settings.hapticsEnabled ||
         settings.language != _settings.language;
     if (reminderChanged) {
-      final reminderApplied = await _reminderService.apply(settings);
+      final doodles = await _doodleRepository.loadAll();
+      final reminderApplied = await _reminderService.apply(
+        settings,
+        completedDateKeys: doodles.keys.toSet(),
+      );
       final enablingReminder =
           !_settings.dailyReminderEnabled && settings.dailyReminderEnabled;
       if (!reminderApplied && enablingReminder) return false;
@@ -160,15 +181,22 @@ class _DairryAppState extends State<DairryApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'dairry',
+      title: 'Drawn Days',
       theme: _themeFor(_settings.theme),
       home: _settingsLoaded
-          ? CalendarHomePage(
-              repository: _doodleRepository,
-              settings: _settings,
-              onSettingsChanged: _updateSettings,
-              today: widget.today,
-            )
+          ? _settings.onboardingCompleted
+                ? CalendarHomePage(
+                    repository: _doodleRepository,
+                    reminderService: _reminderService,
+                    settings: _settings,
+                    onSettingsChanged: _updateSettings,
+                    today: widget.today,
+                  )
+                : OnboardingPage(
+                    onStart: () => _updateSettings(
+                      _settings.copyWith(onboardingCompleted: true),
+                    ),
+                  )
           : const Scaffold(
               body: Center(
                 child: SizedBox(

@@ -28,8 +28,8 @@ class PrivacyPage extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             s.t(
-              'dairry hesap açmaz ve çizimlerini bir sunucuya göndermez. Çizimler ve tercihler cihazında, uygulamanın yerel dosyalarında saklanır.',
-              'dairry does not create an account or send your drawings to a server. Drawings and preferences are stored locally on your device.',
+              'Drawn Days hesap açmaz ve çizimlerini bir sunucuya göndermez. Çizimler ve tercihler cihazında, uygulamanın yerel dosyalarında saklanır.',
+              'Drawn Days does not create an account or send your drawings to a server. Drawings and preferences are stored locally on your device.',
             ),
           ),
           const SizedBox(height: 24),

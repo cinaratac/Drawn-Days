@@ -19,28 +19,58 @@ class FileDoodleRepository implements DoodleRepository {
   FileDoodleRepository({this.storagePath});
 
   final String? storagePath;
+  Map<String, Doodle>? _cache;
+  Future<Map<String, Doodle>>? _loadInFlight;
 
   @override
   Future<Map<String, Doodle>> loadAll() async {
+    final cached = _cache;
+    if (cached != null) return Map<String, Doodle>.from(cached);
+
+    final activeLoad = _loadInFlight;
+    if (activeLoad != null) {
+      return Map<String, Doodle>.from(await activeLoad);
+    }
+
+    final load = _loadFromDisk();
+    _loadInFlight = load;
+    try {
+      return Map<String, Doodle>.from(await load);
+    } finally {
+      if (identical(_loadInFlight, load)) _loadInFlight = null;
+    }
+  }
+
+  Future<Map<String, Doodle>> _loadFromDisk() async {
     final file = await _storageFile();
-    if (!await file.exists()) return <String, Doodle>{};
+    if (!await file.exists()) {
+      _cache = <String, Doodle>{};
+      return <String, Doodle>{};
+    }
 
     final encoded = await file.readAsString();
-    if (encoded.isEmpty) return <String, Doodle>{};
+    if (encoded.isEmpty) {
+      _cache = <String, Doodle>{};
+      return <String, Doodle>{};
+    }
 
     try {
       final decoded = jsonDecode(encoded);
       if (decoded is! Map) return <String, Doodle>{};
 
-      return decoded.map<String, Doodle>((key, value) {
+      final doodles = decoded.map<String, Doodle>((key, value) {
         return MapEntry(
           key.toString(),
           Doodle.fromJson(Map<String, Object?>.from(value as Map)),
         );
       });
+      _cache = doodles;
+      return Map<String, Doodle>.from(doodles);
     } on FormatException {
+      _cache = <String, Doodle>{};
       return <String, Doodle>{};
     } on TypeError {
+      _cache = <String, Doodle>{};
       return <String, Doodle>{};
     }
   }
@@ -75,6 +105,7 @@ class FileDoodleRepository implements DoodleRepository {
     );
     final file = await _storageFile();
     await file.writeAsString(encoded, flush: true);
+    _cache = Map<String, Doodle>.from(doodles);
   }
 
   Future<File> _storageFile() async {
@@ -87,7 +118,7 @@ class FileDoodleRepository implements DoodleRepository {
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
-    return File('${directory.path}/dairry_doodles_v1.json');
+    return File('${directory.path}/drawn_days_doodles_v1.json');
   }
 }
 

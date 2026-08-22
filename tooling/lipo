@@ -15,7 +15,7 @@ if [ "$#" -eq 5 ] && [ "$1" = "-output" ] && [ "$3" = "-extract" ]; then
 
   case "$output_path" in
     *-iphonesimulator/Flutter.framework/Flutter)
-      temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/dairry-lipo.XXXXXX")
+      temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/drawn-days-lipo.XXXXXX")
       temporary_path="$temporary_directory/Flutter"
 
       trap 'rm -f "$temporary_path"; rmdir "$temporary_directory" 2>/dev/null || true' EXIT HUP INT TERM

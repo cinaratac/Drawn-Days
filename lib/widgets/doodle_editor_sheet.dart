@@ -12,7 +12,7 @@ Future<Doodle?> showDoodleEditor({
   required DateTime date,
   Doodle? initialDoodle,
   bool hapticsEnabled = true,
-  AppLanguage language = AppLanguage.turkish,
+  AppLanguage language = AppLanguage.english,
 }) {
   return Navigator.of(context).push<Doodle>(
     MaterialPageRoute<Doodle>(
@@ -58,6 +58,7 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
   static const _widths = <double>[3.5, 6.5, 10.5];
 
   late List<DoodleStroke> _strokes;
+  final ValueNotifier<int> _canvasRevision = ValueNotifier<int>(0);
   Color _selectedColor = _palette.first;
   double _selectedWidth = _widths[1];
 
@@ -108,14 +109,13 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
   void _extendStroke(DragUpdateDetails details, Size size) {
     if (_strokes.isEmpty) return;
     final last = _strokes.last;
-    setState(() {
-      _strokes[_strokes.length - 1] = last.copyWith(
-        points: <Offset>[
-          ...last.points,
-          _normalized(details.localPosition, size),
-        ],
-      );
-    });
+    final point = _normalized(details.localPosition, size);
+    if (last.points.isNotEmpty &&
+        (last.points.last - point).distanceSquared < 0.000004) {
+      return;
+    }
+    last.points.add(point);
+    _canvasRevision.value++;
   }
 
   void _undo() {
@@ -133,6 +133,12 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
   void _save() {
     _mediumHaptic();
     Navigator.of(context).pop(_doodle);
+  }
+
+  @override
+  void dispose() {
+    _canvasRevision.dispose();
+    super.dispose();
   }
 
   @override
@@ -178,7 +184,11 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(21),
                               child: CustomPaint(
-                                painter: DoodlePainter(doodle: _doodle),
+                                painter: DoodlePainter(
+                                  doodle: _doodle,
+                                  cacheGeometry: false,
+                                  repaint: _canvasRevision,
+                                ),
                                 child: const SizedBox.expand(),
                               ),
                             ),

@@ -11,7 +11,6 @@ class SettingsPage extends StatefulWidget {
     required this.doodleCount,
     required this.onSettingsChanged,
     required this.onClearDoodles,
-    required this.onExportCalendar,
     required this.onCreateBackup,
     required this.onRestoreBackup,
   });
@@ -20,7 +19,6 @@ class SettingsPage extends StatefulWidget {
   final int doodleCount;
   final Future<bool> Function(AppSettings) onSettingsChanged;
   final Future<void> Function() onClearDoodles;
-  final Future<void> Function() onExportCalendar;
   final Future<void> Function() onCreateBackup;
   final Future<bool> Function() onRestoreBackup;
 
@@ -103,14 +101,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ).showSnackBar(SnackBar(content: Text(_s.backupInvalid)));
       }
     });
-  }
-
-  Future<void> _exportCalendar() async {
-    if (_busy) return;
-    final export = widget.onExportCalendar;
-    Navigator.of(context).pop();
-    await Future<void>.delayed(const Duration(milliseconds: 220));
-    await export();
   }
 
   Future<void> _confirmClearDoodles() async {
@@ -309,13 +299,6 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               children: [
                 _ActionTile(
-                  icon: Icons.image_outlined,
-                  title: _s.exportImage,
-                  subtitle: _s.exportImageSubtitle,
-                  onTap: _busy ? null : _exportCalendar,
-                ),
-                const Divider(height: 12),
-                _ActionTile(
                   icon: Icons.archive_outlined,
                   title: _s.createBackup,
                   subtitle: _s.createBackupSubtitle,
@@ -445,12 +428,13 @@ class _SettingsCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surface,
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surface,
+    shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
     ),
+    clipBehavior: Clip.hardEdge,
     child: Padding(padding: const EdgeInsets.all(16), child: child),
   );
 }

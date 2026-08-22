@@ -3,14 +3,24 @@ import 'package:flutter/material.dart';
 import '../models/doodle.dart';
 
 class DoodlePainter extends CustomPainter {
-  const DoodlePainter({required this.doodle, this.stickerOutline = false});
+  const DoodlePainter({
+    required this.doodle,
+    this.stickerOutline = false,
+    this.cacheGeometry = true,
+    super.repaint,
+  });
 
   final Doodle doodle;
   final bool stickerOutline;
+  final bool cacheGeometry;
+
+  static final Expando<_StrokeGeometry> _geometryCache =
+      Expando<_StrokeGeometry>('doodle-stroke-geometry');
 
   @override
   void paint(Canvas canvas, Size size) {
     final side = size.shortestSide;
+    if (side <= 0) return;
     final origin = Offset((size.width - side) / 2, (size.height - side) / 2);
 
     for (final stroke in doodle.strokes) {
@@ -18,47 +28,54 @@ class DoodlePainter extends CustomPainter {
 
       final scale = side / 360;
       final width = (stroke.width * scale).clamp(0.85, 18.0);
-      final points = stroke.points
-          .map(
-            (point) => Offset(
-              origin.dx + (point.dx * side),
-              origin.dy + (point.dy * side),
-            ),
-          )
-          .toList(growable: false);
+      final geometry = _geometryFor(stroke);
+
+      canvas
+        ..save()
+        ..translate(origin.dx, origin.dy)
+        ..scale(side, side);
 
       if (stickerOutline) {
-        _drawStroke(
+        _drawGeometry(
           canvas,
-          points,
+          geometry,
           Paint()
             ..color = const Color(0xFFFFFDF8)
-            ..strokeWidth = width + (4 * scale).clamp(1.5, 5.0)
+            ..strokeWidth = (width + (4 * scale).clamp(1.5, 5.0)) / side
             ..strokeCap = StrokeCap.round
             ..strokeJoin = StrokeJoin.round
             ..style = PaintingStyle.stroke,
         );
       }
 
-      _drawStroke(
+      _drawGeometry(
         canvas,
-        points,
+        geometry,
         Paint()
           ..color = Color(stroke.colorValue)
-          ..strokeWidth = width
+          ..strokeWidth = width / side
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round
           ..style = PaintingStyle.stroke,
       );
+      canvas.restore();
     }
   }
 
-  void _drawStroke(Canvas canvas, List<Offset> points, Paint paint) {
-    if (points.length == 1) {
-      canvas.drawCircle(points.first, paint.strokeWidth / 2, paint);
-      return;
+  _StrokeGeometry _geometryFor(DoodleStroke stroke) {
+    if (cacheGeometry) {
+      final cached = _geometryCache[stroke];
+      if (cached != null) return cached;
     }
 
+    final geometry = stroke.points.length == 1
+        ? _StrokeGeometry.single(stroke.points.first)
+        : _StrokeGeometry.path(_pathFor(stroke.points));
+    if (cacheGeometry) _geometryCache[stroke] = geometry;
+    return geometry;
+  }
+
+  Path _pathFor(List<Offset> points) {
     final path = Path()..moveTo(points.first.dx, points.first.dy);
     for (var index = 1; index < points.length - 1; index++) {
       final current = points[index];
@@ -70,13 +87,32 @@ class DoodlePainter extends CustomPainter {
       path.quadraticBezierTo(current.dx, current.dy, midpoint.dx, midpoint.dy);
     }
     path.lineTo(points.last.dx, points.last.dy);
-    canvas.drawPath(path, paint);
+    return path;
+  }
+
+  void _drawGeometry(Canvas canvas, _StrokeGeometry geometry, Paint paint) {
+    final point = geometry.point;
+    if (point != null) {
+      canvas.drawCircle(point, paint.strokeWidth / 2, paint);
+      return;
+    }
+    canvas.drawPath(geometry.path!, paint);
   }
 
   @override
   bool shouldRepaint(covariant DoodlePainter oldDelegate) =>
       oldDelegate.doodle != doodle ||
-      oldDelegate.stickerOutline != stickerOutline;
+      oldDelegate.stickerOutline != stickerOutline ||
+      oldDelegate.cacheGeometry != cacheGeometry;
+}
+
+class _StrokeGeometry {
+  const _StrokeGeometry.single(this.point) : path = null;
+
+  const _StrokeGeometry.path(this.path) : point = null;
+
+  final Offset? point;
+  final Path? path;
 }
 
 class DoodlePreview extends StatelessWidget {
@@ -84,7 +120,7 @@ class DoodlePreview extends StatelessWidget {
     super.key,
     required this.doodle,
     this.padding = const EdgeInsets.all(4),
-    this.stickerOutline = true,
+    this.stickerOutline = false,
   });
 
   final Doodle doodle;
@@ -99,6 +135,8 @@ class DoodlePreview extends StatelessWidget {
         child: Padding(
           padding: padding,
           child: CustomPaint(
+            isComplex: true,
+            willChange: false,
             painter: DoodlePainter(
               doodle: doodle,
               stickerOutline: stickerOutline,

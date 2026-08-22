@@ -11,12 +11,13 @@ class AppSettings {
     this.startView = StartViewPreference.month,
     this.theme = AppThemePreference.paper,
     this.weekStart = WeekStartPreference.monday,
-    this.language = AppLanguage.turkish,
-    this.dailyReminderEnabled = false,
-    this.reminderHour = 20,
+    this.language = AppLanguage.english,
+    this.dailyReminderEnabled = true,
+    this.reminderHour = 18,
     this.reminderMinute = 0,
     this.soundEnabled = true,
     this.hapticsEnabled = true,
+    this.onboardingCompleted = false,
   });
 
   final StartViewPreference startView;
@@ -28,6 +29,7 @@ class AppSettings {
   final int reminderMinute;
   final bool soundEnabled;
   final bool hapticsEnabled;
+  final bool onboardingCompleted;
 
   AppSettings copyWith({
     StartViewPreference? startView,
@@ -39,6 +41,7 @@ class AppSettings {
     int? reminderMinute,
     bool? soundEnabled,
     bool? hapticsEnabled,
+    bool? onboardingCompleted,
   }) {
     return AppSettings(
       startView: startView ?? this.startView,
@@ -50,6 +53,7 @@ class AppSettings {
       reminderMinute: reminderMinute ?? this.reminderMinute,
       soundEnabled: soundEnabled ?? this.soundEnabled,
       hapticsEnabled: hapticsEnabled ?? this.hapticsEnabled,
+      onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
     );
   }
 
@@ -63,6 +67,7 @@ class AppSettings {
     'reminderMinute': reminderMinute,
     'soundEnabled': soundEnabled,
     'hapticsEnabled': hapticsEnabled,
+    'onboardingCompleted': onboardingCompleted,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> json) {
@@ -81,10 +86,10 @@ class AppSettings {
       ),
       language: AppLanguage.values.firstWhere(
         (value) => value.name == json['language'],
-        orElse: () => AppLanguage.turkish,
+        orElse: () => AppLanguage.english,
       ),
-      dailyReminderEnabled: json['dailyReminderEnabled'] as bool? ?? false,
-      reminderHour: ((json['reminderHour'] as num?)?.toInt() ?? 20)
+      dailyReminderEnabled: json['dailyReminderEnabled'] as bool? ?? true,
+      reminderHour: ((json['reminderHour'] as num?)?.toInt() ?? 18)
           .clamp(0, 23)
           .toInt(),
       reminderMinute: ((json['reminderMinute'] as num?)?.toInt() ?? 0)
@@ -92,6 +97,7 @@ class AppSettings {
           .toInt(),
       soundEnabled: json['soundEnabled'] as bool? ?? true,
       hapticsEnabled: json['hapticsEnabled'] as bool? ?? true,
+      onboardingCompleted: json['onboardingCompleted'] as bool? ?? false,
     );
   }
 }

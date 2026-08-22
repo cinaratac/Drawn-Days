@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
-        android:label="dairryapp"
+        android:label="Drawn Days"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -39,15 +39,15 @@
             android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver
-            android:name=".DairryTodayWidgetProvider"
+            android:name=".DrawnDaysTodayWidgetProvider"
             android:exported="true"
-            android:label="dairry.">
+            android:label="Drawn Days">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/dairry_today_widget_info" />
+                android:resource="@xml/drawn_days_today_widget_info" />
         </receiver>
         <receiver
             android:exported="false"

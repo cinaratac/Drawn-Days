@@ -1,4 +1,4 @@
-package com.dairry.dairryapp
+package com.drawndays.app
 
 import io.flutter.embedding.android.FlutterActivity
 

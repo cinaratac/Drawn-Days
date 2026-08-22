@@ -8,6 +8,8 @@ clean_target() {
   /usr/bin/xattr -dr com.apple.FinderInfo "$guarded_target" 2>/dev/null || true
   /usr/bin/xattr -dr com.apple.ResourceFork "$guarded_target" 2>/dev/null || true
   /usr/bin/xattr -dr 'com.apple.fileprovider.fpfs#P' "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr com.apple.provenance "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr com.apple.quarantine "$guarded_target" 2>/dev/null || true
 }
 
 if [ "${1:-}" = "--worker" ]; then

@@ -72,6 +72,26 @@ const englishWeekdaysLong = <String>[
   'Sunday',
 ];
 
+const turkishCompactWeekdays = <String>[
+  'PZT',
+  'SL',
+  'ÇRŞ',
+  'PRŞ',
+  'CM',
+  'CMT',
+  'PZ',
+];
+
+const englishCompactWeekdays = <String>[
+  'MON',
+  'TUE',
+  'WED',
+  'THU',
+  'FRI',
+  'SAT',
+  'SUN',
+];
+
 List<String> monthNames(AppLanguage language) =>
     language == AppLanguage.english ? englishMonths : turkishMonths;
 
@@ -88,6 +108,11 @@ List<String> weekdayNamesShort(
 List<String> weekdayNamesLong(AppLanguage language) =>
     language == AppLanguage.english ? englishWeekdaysLong : turkishWeekdaysLong;
 
+String compactWeekdayName(DateTime date, AppLanguage language) =>
+    (language == AppLanguage.english
+    ? englishCompactWeekdays
+    : turkishCompactWeekdays)[date.weekday - 1];
+
 DateTime dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 
 String dateKey(DateTime date) =>
@@ -97,10 +122,10 @@ String dateKey(DateTime date) =>
 
 String monthTitle(
   DateTime date, [
-  AppLanguage language = AppLanguage.turkish,
+  AppLanguage language = AppLanguage.english,
 ]) => '${monthNames(language)[date.month - 1]} ${date.year}';
 
-String longDate(DateTime date, [AppLanguage language = AppLanguage.turkish]) {
+String longDate(DateTime date, [AppLanguage language = AppLanguage.english]) {
   final months = monthNames(language);
   final weekdays = weekdayNamesLong(language);
   return language == AppLanguage.english
@@ -118,7 +143,7 @@ DateTime startOfWeek(DateTime date, {bool mondayFirst = true}) {
 
 String weekTitle(
   DateTime focusDate, {
-  AppLanguage language = AppLanguage.turkish,
+  AppLanguage language = AppLanguage.english,
   bool mondayFirst = true,
 }) {
   final months = monthNames(language);

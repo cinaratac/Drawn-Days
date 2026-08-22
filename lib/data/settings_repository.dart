@@ -46,7 +46,7 @@ class FileSettingsRepository implements SettingsRepository {
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
-    return File('${directory.path}/dairry_settings_v1.json');
+    return File('${directory.path}/drawn_days_settings_v1.json');
   }
 }
 

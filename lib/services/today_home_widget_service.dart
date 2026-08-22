@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart' show debugPrint, debugPrintStack;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -10,13 +12,17 @@ import '../widgets/doodle_painter.dart';
 class TodayHomeWidgetService {
   TodayHomeWidgetService._();
 
-  static const appGroupId = 'group.com.dairry.dairryapp';
-  static const androidProvider = 'DairryTodayWidgetProvider';
+  static const appGroupId = 'group.com.drawndays.app';
+  static const androidProvider = 'DrawnDaysTodayWidgetProvider';
   static const androidQualifiedProvider =
-      'com.dairry.dairryapp.DairryTodayWidgetProvider';
-  static const iOSWidgetKind = 'DairryTodayWidget';
+      'com.drawndays.app.DrawnDaysTodayWidgetProvider';
+  static const iOSWidgetKind = 'DrawnDaysTodayWidget';
+  static const _imageDimension = 512;
+  static const _imagePadding = 30.0;
 
   static bool _initialized = false;
+  static int? _lastFingerprint;
+  static Future<void> _syncQueue = Future<void>.value();
 
   static Future<void> initialize() async {
     if (_initialized) return;
@@ -24,8 +30,6 @@ class TodayHomeWidgetService {
       await HomeWidget.setAppGroupId(appGroupId);
       _initialized = true;
     } catch (error, stackTrace) {
-      // A native plugin added during a debug session becomes available after
-      // a full restart. The main calendar must remain usable in the meantime.
       debugPrint('Today widget initialization failed: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
@@ -35,9 +39,43 @@ class TodayHomeWidgetService {
     required DateTime date,
     required Doodle? doodle,
     required AppLanguage language,
+  }) {
+    _syncQueue = _syncQueue.then(
+      (_) => _performSync(date: date, doodle: doodle, language: language),
+      onError: (_) =>
+          _performSync(date: date, doodle: doodle, language: language),
+    );
+    return _syncQueue;
+  }
+
+  static Future<void> _performSync({
+    required DateTime date,
+    required Doodle? doodle,
+    required AppLanguage language,
   }) async {
     await initialize();
+    if (!_initialized) return;
+
+    final fingerprint = _fingerprint(date, doodle, language);
+    if (_lastFingerprint == fingerprint) return;
+
     try {
+      if (doodle != null) {
+        final pngBytes = await _renderDoodlePng(doodle);
+        await HomeWidget.saveFile(
+          'today_doodle',
+          pngBytes,
+          extension: 'png',
+          appGroupId: appGroupId,
+        );
+      } else {
+        await HomeWidget.saveWidgetData<String>(
+          'today_doodle',
+          null,
+          appGroupId: appGroupId,
+        );
+      }
+
       await Future.wait<bool?>([
         HomeWidget.saveWidgetData<String>(
           'today_date_key',
@@ -56,55 +94,57 @@ class TodayHomeWidgetService {
         ),
       ]);
 
-      if (doodle != null) {
-        await HomeWidget.renderFlutterWidget(
-          _WidgetDoodleArtwork(doodle: doodle),
-          key: 'today_doodle',
-          logicalSize: const Size.square(320),
-          pixelRatio: 2,
-          appGroupId: appGroupId,
-        );
-      } else {
-        await HomeWidget.saveWidgetData<String>(
-          'today_doodle',
-          null,
-          appGroupId: appGroupId,
-        );
-      }
-
       await HomeWidget.updateWidget(
         name: androidProvider,
         androidName: androidProvider,
         qualifiedAndroidName: androidQualifiedProvider,
         iOSName: iOSWidgetKind,
       );
+      _lastFingerprint = fingerprint;
     } catch (error, stackTrace) {
       // Widget sync is supplementary and must never interrupt drawing saves.
       debugPrint('Today widget sync failed: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
   }
-}
 
-class _WidgetDoodleArtwork extends StatelessWidget {
-  const _WidgetDoodleArtwork({required this.doodle});
+  static Future<Uint8List> _renderDoodlePng(Doodle doodle) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final imageSize = Size.square(_imageDimension.toDouble());
+    canvas.drawRect(Offset.zero & imageSize, Paint()..color = Colors.white);
+    canvas
+      ..save()
+      ..translate(_imagePadding, _imagePadding);
+    DoodlePainter(
+      doodle: doodle,
+      stickerOutline: false,
+    ).paint(canvas, const Size.square(_imageDimension - (_imagePadding * 2)));
+    canvas.restore();
 
-  final Doodle doodle;
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(_imageDimension, _imageDimension);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    if (byteData == null) {
+      throw StateError('Widget drawing could not be encoded as PNG');
+    }
+    return byteData.buffer.asUint8List();
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 320,
-      child: ColoredBox(
-        color: Colors.white,
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: CustomPaint(
-            painter: DoodlePainter(doodle: doodle, stickerOutline: false),
-            child: const SizedBox.expand(),
-          ),
+  static int _fingerprint(DateTime date, Doodle? doodle, AppLanguage language) {
+    var hash = Object.hash(dateKey(date), language, doodle?.strokes.length);
+    for (final stroke in doodle?.strokes ?? const <DoodleStroke>[]) {
+      hash = Object.hash(
+        hash,
+        stroke.colorValue,
+        stroke.width,
+        Object.hashAll(
+          stroke.points.map((point) => Object.hash(point.dx, point.dy)),
         ),
-      ),
-    );
+      );
+    }
+    return hash;
   }
 }

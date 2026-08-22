@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
@@ -99,7 +100,7 @@ class _WeekCalendarState extends State<WeekCalendar> {
           padding: const EdgeInsets.only(bottom: 90),
           itemCount: 7,
           itemExtent: _itemExtent,
-          cacheExtent: _itemExtent,
+          scrollCacheExtent: ScrollCacheExtent.pixels(_itemExtent),
           itemBuilder: (context, index) {
             final date = weekStart.add(Duration(days: index));
             final future = isAfterDay(date, widget.today);
@@ -195,6 +196,22 @@ class _WeekDayCard extends StatelessWidget {
                       ? colors.primary
                       : const Color(0xFF4F5751),
                   fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Positioned(
+              right: 16,
+              top: 14,
+              child: Text(
+                compactWeekdayName(date, language),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: future
+                      ? const Color(0xFF9EA59F)
+                      : today
+                      ? colors.primary
+                      : const Color(0xFF4F5751),
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
                 ),
               ),
             ),

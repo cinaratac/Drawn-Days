@@ -1,4 +1,4 @@
-import 'package:dairryapp/models/doodle.dart';
+import 'package:drawn_days/models/doodle.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

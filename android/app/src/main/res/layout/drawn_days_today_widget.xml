@@ -3,7 +3,7 @@
     android:id="@+id/widget_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/dairry_widget_background"
+    android:background="@drawable/drawn_days_widget_background"
     android:clipToOutline="true"
     android:padding="12dp">
 
@@ -11,7 +11,7 @@
         android:id="@+id/widget_doodle"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="@string/dairry_widget_doodle"
+        android:contentDescription="@string/drawn_days_widget_doodle"
         android:scaleType="fitCenter"
         android:visibility="gone" />
 

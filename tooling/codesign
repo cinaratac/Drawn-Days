@@ -26,7 +26,7 @@ case "$target_path" in
     fi
     ;;
   *-iphonesimulator/App.framework/App)
-    temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/dairry-codesign.XXXXXX")
+    temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/drawn-days-codesign.XXXXXX")
     temporary_path="$temporary_directory/App"
 
     trap 'rm -f "$temporary_path"; rmdir "$temporary_directory" 2>/dev/null || true' EXIT HUP INT TERM
