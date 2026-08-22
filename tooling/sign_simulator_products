@@ -1,0 +1,36 @@
+#!/bin/sh
+
+set -eu
+
+app_path=${1:?Runner.app path is required}
+ios_project_dir=${2:?iOS project directory is required}
+platform_name=${3:-}
+
+"$ios_project_dir/../tooling/guard_xattrs" "$app_path" 30
+
+# Flutter disables Runner code signing for simulator builds. The App Group
+# entitlement is embedded in the Mach-O by the linker; keep the ad-hoc code
+# signature entitlement-free, matching Xcode's normal simulator products.
+if [ "$platform_name" != "iphonesimulator" ]; then
+  exit 0
+fi
+
+widget_path="$app_path/PlugIns/TodayWidget.appex"
+if [ -d "$widget_path" ]; then
+  "$ios_project_dir/../tooling/guard_xattrs" "$widget_path" 30
+  /usr/bin/xattr -cr "$widget_path" 2>/dev/null || true
+  /usr/bin/codesign \
+    --force \
+    --sign - \
+    --timestamp=none \
+    --generate-entitlement-der \
+    "$widget_path"
+fi
+
+/usr/bin/xattr -cr "$app_path" 2>/dev/null || true
+/usr/bin/codesign \
+  --force \
+  --sign - \
+  --timestamp=none \
+  --generate-entitlement-der \
+  "$app_path"

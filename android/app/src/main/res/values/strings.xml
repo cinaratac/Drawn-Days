@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">dairry.</string>
+    <string name="dairry_widget_description">Bugünün görsel takvim karesi</string>
+    <string name="dairry_widget_doodle">Bugünün çizimi</string>
+</resources>
