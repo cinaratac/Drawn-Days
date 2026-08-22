@@ -169,11 +169,10 @@ class _MonthCalendarState extends State<MonthCalendar> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const gridSpacing = 3.0;
         final contentWidth = constraints.maxWidth;
-        final cellSize = (contentWidth - (gridSpacing * 6)) / 7;
-        final gridHeight = (cellSize * 6) + (gridSpacing * 5);
-        final monthHeight = 95 + gridHeight;
+        final cellSize = contentWidth / 7;
+        final gridHeight = cellSize * 6;
+        final monthHeight = 79 + gridHeight;
         _itemExtent = monthHeight;
         _viewportHeight = constraints.maxHeight;
 
@@ -250,7 +249,7 @@ class _MonthPage extends StatelessWidget {
     const rowCount = 6;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 12),
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -299,23 +298,22 @@ class _MonthPage extends StatelessWidget {
             height: 1,
             color: Theme.of(context).colorScheme.outlineVariant,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           LayoutBuilder(
             builder: (context, constraints) {
-              const spacing = 3.0;
-              final cellSize = (constraints.maxWidth - (spacing * 6)) / 7;
-              final gridHeight =
-                  (cellSize * rowCount) + (spacing * (rowCount - 1));
+              final cellSize = constraints.maxWidth / 7;
+              final gridHeight = cellSize * rowCount;
 
               return SizedBox(
                 height: gridHeight,
                 child: GridView.count(
+                  padding: EdgeInsets.zero,
                   physics: const NeverScrollableScrollPhysics(),
                   addAutomaticKeepAlives: false,
                   addRepaintBoundaries: false,
                   crossAxisCount: 7,
-                  mainAxisSpacing: spacing,
-                  crossAxisSpacing: spacing,
+                  mainAxisSpacing: 0,
+                  crossAxisSpacing: 0,
                   childAspectRatio: 1,
                   children: List<Widget>.generate(rowCount * 7, (index) {
                     final dayNumber = index - leadingEmptyCells + 1;
@@ -374,7 +372,7 @@ class _MonthDayCell extends StatelessWidget {
       child: Material(
         color: Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.zero,
           side: BorderSide(color: borderColor, width: today ? 1.6 : 0.8),
         ),
         clipBehavior: Clip.antiAlias,
