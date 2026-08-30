@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -eu
+
+output_dir=${1:?Derived-file directory is required}
+team_id=${2:?DEVELOPMENT_TEAM is required}
+bundle_id=${3:?PRODUCT_BUNDLE_IDENTIFIER is required}
+platform_name=${4:-}
+
+if [ "$platform_name" != "iphonesimulator" ]; then
+  exit 0
+fi
+
+/bin/mkdir -p "$output_dir"
+xcent_path="$output_dir/Runner-Simulated.xcent"
+der_path="$xcent_path.der"
+
+/usr/bin/plutil -create xml1 "$xcent_path"
+/usr/bin/plutil -insert application-identifier -string "$team_id.$bundle_id" "$xcent_path"
+/usr/bin/plutil -insert 'com\.apple\.security\.application-groups' -xml '<array><string>group.com.drawndays.app</string></array>' "$xcent_path"
+/usr/bin/derq query -f xml -i "$xcent_path" -o "$der_path" --raw
