@@ -42,6 +42,7 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^13.3.0
   timezone: ^0.11.1
+  audioplayers: ^6.5.1
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +69,14 @@ flutter:
   assets:
     - lib/assets/app_icon.png
     - lib/assets/appname.png
+    - lib/assets/settingbutton.png
+    - lib/assets/sharebutton.png
+    - lib/assets/leftbutton.png
+    - lib/assets/rightbutton.png
+    - lib/assets/todaybutton.png
+    - lib/assets/papersound1.mp3
+    - lib/assets/papersound2.mp3
+    - lib/assets/papersound3.mp3
 
   # To add assets to your application, add an assets section, like this:
   # assets:

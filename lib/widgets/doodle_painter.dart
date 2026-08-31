@@ -130,10 +130,10 @@ class DoodlePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: Padding(
-          padding: padding,
+      child: Padding(
+        padding: padding,
+        child: AspectRatio(
+          aspectRatio: 1,
           child: CustomPaint(
             isComplex: true,
             willChange: false,

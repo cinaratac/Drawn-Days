@@ -12,12 +12,14 @@ import '../l10n/app_strings.dart';
 import '../models/app_settings.dart';
 import '../models/doodle.dart';
 import '../services/app_review_service.dart';
+import '../services/paper_sound_service.dart';
 import '../services/reminder_service.dart';
 import '../services/story_share_service.dart';
 import '../services/today_home_widget_service.dart';
 import '../utils/calendar_utils.dart';
 import '../widgets/day_flow.dart';
 import '../widgets/doodle_editor_sheet.dart';
+import '../widgets/doodle_painter.dart';
 import '../widgets/month_calendar.dart';
 import '../widgets/week_calendar.dart';
 import 'settings_page.dart';
@@ -47,7 +49,7 @@ class CalendarHomePage extends StatefulWidget {
 }
 
 class _CalendarHomePageState extends State<CalendarHomePage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const _minimumDoodlesBeforeReviewRequest = 3;
   static const _maxReviewRequests = 3;
   static const _reviewRequestSpacing = Duration(days: 90);
@@ -55,15 +57,19 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   late DateTime _today;
   late DateTime _focusDate;
   late final ValueNotifier<DateTime> _visibleMonth;
+  late final AnimationController _saveFlightController;
+  final GlobalKey _bodyStackKey = GlobalKey();
   late CalendarView _view;
   int _todayRequest = 0;
   Map<String, Doodle> _doodles = <String, Doodle>{};
+  final PaperSoundService _paperSoundService = PaperSoundService();
   bool _loading = true;
   StreamSubscription<Uri?>? _widgetClickSubscription;
   StreamSubscription<Uri>? _notificationClickSubscription;
   bool _widgetEditorPending = false;
   bool _openingWidgetEditor = false;
   bool _sharing = false;
+  _SaveFlight? _saveFlight;
 
   AppStrings get _s => AppStrings(widget.settings.language);
   bool get _mondayFirst =>
@@ -81,6 +87,10 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       StartViewPreference.flow => CalendarView.flow,
     };
     _visibleMonth = ValueNotifier<DateTime>(_today);
+    _saveFlightController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 680),
+    );
     _initializeHomeWidgetLink();
     _initializeNotificationLink();
     _loadDoodles();
@@ -99,6 +109,8 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _widgetClickSubscription?.cancel();
     _notificationClickSubscription?.cancel();
+    unawaited(_paperSoundService.dispose());
+    _saveFlightController.dispose();
     _visibleMonth.dispose();
     super.dispose();
   }
@@ -313,7 +325,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     setState(() => _focusDate = dateOnly(date));
   }
 
-  Future<void> _editDay(DateTime date) async {
+  Future<void> _editDay(DateTime date, [Rect? targetRect]) async {
     if (isAfterDay(date, _today)) return;
     _lightHaptic();
     final key = dateKey(date);
@@ -325,8 +337,9 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       language: widget.settings.language,
     );
     if (result == null || !mounted) return;
+    final resultDoodle = result.doodle;
 
-    if (result.isEmpty) {
+    if (resultDoodle.isEmpty) {
       await widget.repository.delete(key);
       if (!mounted) return;
       setState(() => _doodles.remove(key));
@@ -343,9 +356,22 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       return;
     }
 
-    await widget.repository.save(key, result);
+    final savedDoodle = resultDoodle.snapshot();
+    await widget.repository.save(key, savedDoodle);
+    if (widget.settings.soundEnabled) {
+      unawaited(_paperSoundService.playRandom());
+    }
     if (!mounted) return;
-    setState(() => _doodles[key] = result);
+    await _playSaveFlight(
+      doodle: savedDoodle,
+      sourceRect: result.sourceRect,
+      targetRect: targetRect,
+    );
+    if (!mounted) return;
+    setState(() {
+      _doodles[key] = savedDoodle;
+      _saveFlight = null;
+    });
     if (isSameDay(date, _today)) {
       _scheduleTodayWidgetSync();
       unawaited(
@@ -357,6 +383,32 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       );
     }
     unawaited(_maybeRequestReview());
+  }
+
+  Future<void> _playSaveFlight({
+    required Doodle doodle,
+    required Rect? sourceRect,
+    required Rect? targetRect,
+  }) async {
+    final from = _bodyLocalRect(sourceRect);
+    final to = _bodyLocalRect(targetRect);
+    if (from == null || to == null) return;
+    _saveFlightController.stop();
+    setState(() {
+      _saveFlight = _SaveFlight(doodle: doodle, from: from, to: to);
+    });
+    await _saveFlightController.forward(from: 0);
+  }
+
+  Rect? _bodyLocalRect(Rect? globalRect) {
+    if (globalRect == null || globalRect.width <= 0 || globalRect.height <= 0) {
+      return null;
+    }
+    final renderObject = _bodyStackKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return null;
+    final topLeft = renderObject.globalToLocal(globalRect.topLeft);
+    final bottomRight = renderObject.globalToLocal(globalRect.bottomRight);
+    return Rect.fromPoints(topLeft, bottomRight);
   }
 
   Future<void> _maybeRequestReview() async {
@@ -632,50 +684,153 @@ class _CalendarHomePageState extends State<CalendarHomePage>
           onSelected: _selectView,
           strings: _s,
         ),
-        body: ColoredBox(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: Column(
-            children: [
-              Container(
-                width: double.infinity,
-                color: appBarColor,
-                padding: EdgeInsets.only(
-                  top: MediaQuery.paddingOf(context).top,
-                  left: 18,
-                  right: 18,
-                  bottom: 6,
-                ),
-                child: _CalendarAppBar(
-                  onToday: _goToToday,
-                  onShare: _sharing ? null : _openStoryShare,
-                  onSettings: _openSettings,
-                  onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
-                  onForward: _canUseRightArrow ? () => _movePeriod(1) : null,
-                  strings: _s,
-                  foregroundColor: colors.onPrimary,
+        body: Stack(
+          key: _bodyStackKey,
+          children: [
+            Positioned.fill(
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Column(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      color: appBarColor,
+                      padding: EdgeInsets.only(
+                        top: MediaQuery.paddingOf(context).top,
+                        left: 18,
+                        right: 18,
+                        bottom: 10,
+                      ),
+                      child: _CalendarAppBar(
+                        onToday: _goToToday,
+                        onShare: _sharing ? null : _openStoryShare,
+                        onSettings: _openSettings,
+                        onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
+                        onForward: _canUseRightArrow
+                            ? () => _movePeriod(1)
+                            : null,
+                        strings: _s,
+                        foregroundColor: colors.onPrimary,
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _loading
+                            ? Center(
+                                key: const ValueKey('loading'),
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: colors.primary,
+                                  ),
+                                ),
+                              )
+                            : _buildCalendarViews(),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _loading
-                      ? Center(
-                          key: const ValueKey('loading'),
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: colors.primary,
-                            ),
-                          ),
-                        )
-                      : _buildCalendarViews(),
+            ),
+            if (_saveFlight != null)
+              Positioned.fill(
+                child: _SaveFlightOverlay(
+                  flight: _saveFlight!,
+                  animation: _saveFlightController,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SaveFlight {
+  const _SaveFlight({
+    required this.doodle,
+    required this.from,
+    required this.to,
+  });
+
+  final Doodle doodle;
+  final Rect from;
+  final Rect to;
+}
+
+class _SaveFlightOverlay extends StatelessWidget {
+  const _SaveFlightOverlay({required this.flight, required this.animation});
+
+  final _SaveFlight flight;
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final move = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeInOutCubic,
+    );
+    final lift = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0, 0.42, curve: Curves.easeOutCubic),
+    );
+    final settle = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0.72, 1, curve: Curves.easeOut),
+    );
+
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final rect = Rect.lerp(flight.from, flight.to, move.value)!;
+          final shadowOpacity = 0.18 * (1 - settle.value);
+          final borderOpacity = 0.8 * (1 - settle.value);
+          final angle = -0.035 * (1 - move.value);
+          final liftOffset = -18 * lift.value * (1 - move.value);
+
+          return Stack(
+            children: [
+              Positioned.fromRect(
+                rect: rect.translate(0, liftOffset),
+                child: Transform.rotate(
+                  angle: angle,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(
+                        color: const Color(
+                          0xFFDFE3DF,
+                        ).withValues(alpha: borderOpacity),
+                        width: 0.8,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colors.shadow.withValues(alpha: shadowOpacity),
+                          blurRadius: 28 * (1 - settle.value),
+                          offset: Offset(0, 18 * (1 - settle.value)),
+                        ),
+                      ],
+                    ),
+                    child: ClipRect(
+                      child: CustomPaint(
+                        painter: DoodlePainter(
+                          doodle: flight.doodle,
+                          cacheGeometry: false,
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -705,15 +860,18 @@ class _CalendarAppBar extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 390;
-        final iconSide = compact ? 36.0 : 40.0;
-        final logoWidth = compact ? 104.0 : 136.0;
-        final navButtonSide = compact ? 32.0 : 34.0;
+        final iconSide = compact ? 42.0 : 46.0;
+        final logoWidth = compact ? 116.0 : 150.0;
+        final navButtonSide = compact ? 29.0 : 31.0;
         final navGap = compact ? 2.0 : 4.0;
+        final todayWidth = iconSide;
+        final logoLeft = (constraints.maxWidth - logoWidth) / 2;
         final navWidth = (navButtonSide * 2) + navGap;
-        final rightRegionWidth = (constraints.maxWidth - logoWidth) / 2;
-        final navRightInset = rightRegionWidth > navWidth
-            ? (rightRegionWidth - navWidth) / 2
-            : 0.0;
+        final logoRight = (constraints.maxWidth + logoWidth) / 2;
+        final todayLeft = constraints.maxWidth - todayWidth;
+        final navLeft = logoRight + ((todayLeft - logoRight - navWidth) / 2);
+        final leftGap = (logoLeft - (iconSide * 2)) / 3;
+        final leadingLeft = leftGap.clamp(0.0, double.infinity);
 
         return SizedBox(
           height: iconSide,
@@ -724,7 +882,7 @@ class _CalendarAppBar extends StatelessWidget {
                 alignment: Alignment.center,
                 child: SizedBox(
                   width: logoWidth,
-                  height: 40,
+                  height: iconSide,
                   child: ClipRect(
                     child: Image.asset(
                       'lib/assets/appname.png',
@@ -736,8 +894,9 @@ class _CalendarAppBar extends StatelessWidget {
                   ),
                 ),
               ),
-              Align(
-                alignment: Alignment.centerLeft,
+              Positioned(
+                left: leadingLeft,
+                top: 0,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -747,11 +906,12 @@ class _CalendarAppBar extends StatelessWidget {
                         key: const Key('open-settings'),
                         tooltip: strings.settings,
                         onPressed: onSettings,
-                        icon: Icon(
-                          Icons.settings_rounded,
-                          size: compact ? 19 : 20,
+                        icon: _AppBarAssetIcon(
+                          assetPath: 'lib/assets/settingbutton.png',
+                          fallbackIcon: Icons.settings_rounded,
+                          color: foregroundColor,
+                          size: compact ? 27 : 30,
                         ),
-                        color: foregroundColor,
                         constraints: BoxConstraints.tightFor(
                           width: iconSide,
                           height: iconSide,
@@ -759,17 +919,19 @@ class _CalendarAppBar extends StatelessWidget {
                         padding: EdgeInsets.zero,
                       ),
                     ),
+                    SizedBox(width: leadingLeft),
                     SizedBox.square(
                       dimension: iconSide,
                       child: IconButton(
                         key: const Key('share-story'),
                         tooltip: strings.share,
                         onPressed: onShare,
-                        icon: Icon(
-                          Icons.share_rounded,
-                          size: compact ? 18 : 19,
+                        icon: _AppBarAssetIcon(
+                          assetPath: 'lib/assets/sharebutton.png',
+                          fallbackIcon: Icons.share_rounded,
+                          color: foregroundColor,
+                          size: compact ? 32 : 35,
                         ),
-                        color: foregroundColor,
                         constraints: BoxConstraints.tightFor(
                           width: iconSide,
                           height: iconSide,
@@ -777,55 +939,54 @@ class _CalendarAppBar extends StatelessWidget {
                         padding: EdgeInsets.zero,
                       ),
                     ),
-                    SizedBox(
-                      width: compact ? 58 : 72,
-                      height: iconSide,
-                      child: TextButton(
-                        key: const Key('go-today'),
-                        onPressed: onToday,
-                        style: TextButton.styleFrom(
-                          foregroundColor: foregroundColor,
-                          minimumSize: Size.zero,
-                          padding: EdgeInsets.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            strings.today,
-                            maxLines: 1,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
               Positioned(
-                right: navRightInset,
+                left: navLeft.clamp(0.0, constraints.maxWidth - navWidth),
                 top: (iconSide - navButtonSide) / 2,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _NavigationButton(
                       key: const Key('previous-period'),
-                      icon: Icons.chevron_left_rounded,
+                      assetPath: 'lib/assets/leftbutton.png',
+                      fallbackIcon: Icons.chevron_left_rounded,
                       onTap: onBack,
                       size: navButtonSide,
                     ),
                     SizedBox(width: navGap),
                     _NavigationButton(
                       key: const Key('next-period'),
-                      icon: Icons.chevron_right_rounded,
+                      assetPath: 'lib/assets/rightbutton.png',
+                      fallbackIcon: Icons.chevron_right_rounded,
                       onTap: onForward,
                       size: navButtonSide,
                     ),
                   ],
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: todayWidth,
+                  height: iconSide,
+                  child: IconButton(
+                    key: const Key('go-today'),
+                    tooltip: strings.today,
+                    onPressed: onToday,
+                    icon: _AppBarAssetIcon(
+                      assetPath: 'lib/assets/todaybutton.png',
+                      fallbackIcon: Icons.today_rounded,
+                      color: foregroundColor,
+                      size: compact ? 27 : 30,
+                    ),
+                    constraints: BoxConstraints.tightFor(
+                      width: iconSide,
+                      height: iconSide,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
                 ),
               ),
             ],
@@ -836,15 +997,46 @@ class _CalendarAppBar extends StatelessWidget {
   }
 }
 
+class _AppBarAssetIcon extends StatelessWidget {
+  const _AppBarAssetIcon({
+    required this.assetPath,
+    required this.fallbackIcon,
+    required this.color,
+    required this.size,
+  });
+
+  final String assetPath;
+  final IconData fallbackIcon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      assetPath,
+      width: size,
+      height: size,
+      color: color,
+      colorBlendMode: BlendMode.srcIn,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (context, error, stackTrace) {
+        return Icon(fallbackIcon, color: color, size: size);
+      },
+    );
+  }
+}
+
 class _NavigationButton extends StatelessWidget {
   const _NavigationButton({
     super.key,
-    required this.icon,
+    required this.assetPath,
+    required this.fallbackIcon,
     required this.onTap,
     this.size = 40,
   });
 
-  final IconData icon;
+  final String assetPath;
+  final IconData fallbackIcon;
   final VoidCallback? onTap;
   final double size;
 
@@ -862,12 +1054,26 @@ class _NavigationButton extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: Icon(
-            icon,
-            size: size * 0.62,
-            color: onTap == null
-                ? colors.onSurfaceVariant.withValues(alpha: 0.45)
-                : colors.primary,
+          child: Center(
+            child: Image.asset(
+              assetPath,
+              width: size * 0.72,
+              height: size * 0.72,
+              color: onTap == null
+                  ? colors.onSurfaceVariant.withValues(alpha: 0.45)
+                  : colors.primary,
+              colorBlendMode: BlendMode.srcIn,
+              filterQuality: FilterQuality.high,
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(
+                  fallbackIcon,
+                  color: onTap == null
+                      ? colors.onSurfaceVariant.withValues(alpha: 0.45)
+                      : colors.primary,
+                  size: size * 0.72,
+                );
+              },
+            ),
           ),
         ),
       ),

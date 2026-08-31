@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
 import '../utils/calendar_utils.dart';
+import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
 
 class MonthCalendar extends StatefulWidget {
@@ -26,7 +27,7 @@ class MonthCalendar extends StatefulWidget {
   final int todayRequest;
   final bool isActive;
   final Map<String, Doodle> doodles;
-  final ValueChanged<DateTime> onDayTap;
+  final DayTapCallback onDayTap;
   final ValueChanged<DateTime> onVisibleMonthChanged;
   final ValueChanged<DateTime> onMonthChanged;
   final AppLanguage language;
@@ -38,8 +39,8 @@ class MonthCalendar extends StatefulWidget {
 
 class _MonthCalendarState extends State<MonthCalendar> {
   static const _navigationClearance = 90.0;
-  static const _monthHeaderExtent = 79.0;
-  static const _gridTopOffset = 77.0;
+  static const _monthHeaderExtent = 92.0;
+  static const _gridTopOffset = 92.0;
   static const _monthGridRowCount = 6;
   static const _pastMonthCount = 1200;
   static const _futureMonthCount = 1200;
@@ -258,7 +259,7 @@ class _MonthPage extends StatelessWidget {
   final DateTime month;
   final DateTime today;
   final Map<String, Doodle> doodles;
-  final ValueChanged<DateTime> onDayTap;
+  final DayTapCallback onDayTap;
   final AppLanguage language;
   final bool mondayFirst;
 
@@ -274,17 +275,17 @@ class _MonthPage extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
+      padding: EdgeInsets.zero,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 22, child: _NotebookBinding()),
           SizedBox(
-            height: 28,
+            height: 44,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
+                padding: const EdgeInsets.only(left: 23, right: 3),
                 child: Text(
                   monthTitle(month, language),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -300,8 +301,8 @@ class _MonthPage extends StatelessWidget {
           Container(
             height: 26,
             decoration: BoxDecoration(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(7),
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFDFE3DF), width: 0.8),
             ),
             child: Row(
               children: weekdayNamesShort(language, mondayFirst: mondayFirst)
@@ -312,7 +313,7 @@ class _MonthPage extends StatelessWidget {
                           weekday.toUpperCase(),
                           style: Theme.of(context).textTheme.labelSmall
                               ?.copyWith(
-                                color: colors.onPrimary,
+                                color: colors.onSurfaceVariant,
                                 fontSize: 9,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.45,
@@ -324,7 +325,6 @@ class _MonthPage extends StatelessWidget {
                   .toList(growable: false),
             ),
           ),
-          const SizedBox(height: 1),
           LayoutBuilder(
             builder: (context, constraints) {
               final cellSize = constraints.maxWidth / 7;
@@ -359,7 +359,9 @@ class _MonthPage extends StatelessWidget {
                               today: isSameDay(date, today),
                               future: future,
                               doodle: doodles[key],
-                              onTap: future ? null : () => onDayTap(date),
+                              onTap: future
+                                  ? null
+                                  : (targetRect) => onDayTap(date, targetRect),
                             ),
                           );
                         }),
@@ -398,9 +400,7 @@ class _NotebookBinding extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _NotebookBindingPainter(
-        color: Theme.of(context).colorScheme.primary,
-      ),
+      painter: const _NotebookBindingPainter(color: Color(0xFF3E423F)),
       child: const SizedBox.expand(),
     );
   }
@@ -477,7 +477,7 @@ class _MonthDayCell extends StatelessWidget {
   final bool today;
   final bool future;
   final Doodle? doodle;
-  final VoidCallback? onTap;
+  final ValueChanged<Rect>? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -487,69 +487,83 @@ class _MonthDayCell extends StatelessWidget {
       button: !future,
       enabled: !future,
       label: future ? '${date.day}, henüz yaşanmadı' : '${date.day}',
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.fromBorderSide(
-              BorderSide(
-                color: today ? colors.primary : const Color(0xFFDFE3DF),
-                width: today ? 1.6 : 0.8,
+      child: Builder(
+        builder: (context) {
+          void handleTap() {
+            final callback = onTap;
+            if (callback == null) return;
+            final renderObject = context.findRenderObject();
+            if (renderObject is! RenderBox || !renderObject.hasSize) return;
+            callback(
+              renderObject.localToGlobal(Offset.zero) & renderObject.size,
+            );
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap == null ? null : handleTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.fromBorderSide(
+                  BorderSide(
+                    color: today ? colors.primary : const Color(0xFFDFE3DF),
+                    width: today ? 1.6 : 0.8,
+                  ),
+                ),
+              ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (doodle != null)
+                    Positioned.fill(
+                      child: ClipRect(
+                        child: DoodlePreview(
+                          doodle: doodle!,
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    left: 5,
+                    top: 4,
+                    child: Text(
+                      '${date.day}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: future
+                            ? const Color(0xFF9EA59F)
+                            : today
+                            ? colors.primary
+                            : const Color(0xFF5C625D),
+                        fontWeight: today ? FontWeight.w800 : FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  if (future)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Icon(
+                          Icons.lock_outline_rounded,
+                          size: 15,
+                          color: Color(0xFF9AA39D),
+                        ),
+                      ),
+                    ),
+                  if (today && doodle == null)
+                    Center(
+                      child: Icon(
+                        Icons.add_rounded,
+                        size: 18,
+                        color: colors.primary,
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              if (doodle != null)
-                Positioned.fill(
-                  child: ClipRect(
-                    child: DoodlePreview(
-                      doodle: doodle!,
-                      padding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-              Positioned(
-                left: 5,
-                top: 4,
-                child: Text(
-                  '${date.day}',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: future
-                        ? const Color(0xFF9EA59F)
-                        : today
-                        ? colors.primary
-                        : const Color(0xFF5C625D),
-                    fontWeight: today ? FontWeight.w800 : FontWeight.w600,
-                    fontSize: 10,
-                  ),
-                ),
-              ),
-              if (future)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Icon(
-                      Icons.lock_outline_rounded,
-                      size: 15,
-                      color: Color(0xFF9AA39D),
-                    ),
-                  ),
-                ),
-              if (today && doodle == null)
-                Center(
-                  child: Icon(
-                    Icons.add_rounded,
-                    size: 18,
-                    color: colors.primary,
-                  ),
-                ),
-            ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }

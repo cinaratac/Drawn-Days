@@ -4,6 +4,7 @@ import '../models/doodle.dart';
 import '../models/app_settings.dart';
 import '../utils/calendar_utils.dart';
 import 'add_doodle_prompt.dart';
+import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
 
 class DayFlow extends StatefulWidget {
@@ -24,7 +25,7 @@ class DayFlow extends StatefulWidget {
   final int todayRequest;
   final bool isActive;
   final Map<String, Doodle> doodles;
-  final ValueChanged<DateTime> onDayTap;
+  final DayTapCallback onDayTap;
   final ValueChanged<DateTime> onVisibleDateChanged;
   final AppLanguage language;
 
@@ -114,7 +115,7 @@ class _DayFlowState extends State<DayFlow> {
                   date: date,
                   today: index == 0,
                   doodle: doodle,
-                  onTap: () => widget.onDayTap(date),
+                  onTap: (targetRect) => widget.onDayTap(date, targetRect),
                   language: widget.language,
                 ),
               );
@@ -139,50 +140,63 @@ class _FlowDayCard extends StatelessWidget {
   final DateTime date;
   final bool today;
   final Doodle? doodle;
-  final VoidCallback onTap;
+  final ValueChanged<Rect> onTap;
   final AppLanguage language;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.zero,
-        side: BorderSide(
-          color: today ? colors.primary : const Color(0xFFDFE3DF),
-          width: today ? 1.5 : 0.8,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: doodle == null
-                  ? Center(
-                      child: AddDoodlePrompt(language: language, onTap: onTap),
-                    )
-                  : DoodlePreview(
-                      doodle: doodle!,
-                      padding: const EdgeInsets.fromLTRB(18, 42, 18, 18),
-                    ),
+    const doodlePadding = EdgeInsets.fromLTRB(18, 42, 18, 18);
+    return Builder(
+      builder: (context) {
+        void handleTap() {
+          final renderObject = context.findRenderObject();
+          if (renderObject is! RenderBox || !renderObject.hasSize) return;
+          final cardRect =
+              renderObject.localToGlobal(Offset.zero) & renderObject.size;
+          onTap(doodlePreviewPaintRect(cardRect, doodlePadding));
+        }
+
+        return Material(
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.zero,
+            side: BorderSide(
+              color: today ? colors.primary : const Color(0xFFDFE3DF),
+              width: today ? 1.5 : 0.8,
             ),
-            Positioned(
-              left: 16,
-              top: 14,
-              child: Text(
-                '${date.day} ${monthNames(language)[date.month - 1]}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: today ? colors.primary : const Color(0xFF4F5751),
-                  fontWeight: FontWeight.w800,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: handleTap,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: doodle == null
+                      ? Center(
+                          child: AddDoodlePrompt(
+                            language: language,
+                            onTap: handleTap,
+                          ),
+                        )
+                      : DoodlePreview(doodle: doodle!, padding: doodlePadding),
                 ),
-              ),
+                Positioned(
+                  left: 16,
+                  top: 14,
+                  child: Text(
+                    '${date.day} ${monthNames(language)[date.month - 1]}',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: today ? colors.primary : const Color(0xFF4F5751),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

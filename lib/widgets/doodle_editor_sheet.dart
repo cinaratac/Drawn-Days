@@ -7,23 +7,38 @@ import '../l10n/app_strings.dart';
 import '../utils/calendar_utils.dart';
 import 'doodle_painter.dart';
 
-Future<Doodle?> showDoodleEditor({
+Future<DoodleEditorResult?> showDoodleEditor({
   required BuildContext context,
   required DateTime date,
   Doodle? initialDoodle,
   bool hapticsEnabled = true,
   AppLanguage language = AppLanguage.english,
 }) {
-  return Navigator.of(context).push<Doodle>(
-    MaterialPageRoute<Doodle>(
-      builder: (context) => DoodleEditorPage(
+  return Navigator.of(context).push<DoodleEditorResult>(
+    PageRouteBuilder<DoodleEditorResult>(
+      transitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (context, animation, secondaryAnimation) => DoodleEditorPage(
         date: date,
         initialDoodle: initialDoodle,
         hapticsEnabled: hapticsEnabled,
         language: language,
       ),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        );
+      },
     ),
   );
+}
+
+class DoodleEditorResult {
+  const DoodleEditorResult({required this.doodle, required this.sourceRect});
+
+  final Doodle doodle;
+  final Rect? sourceRect;
 }
 
 class DoodleEditorPage extends StatefulWidget {
@@ -59,8 +74,10 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
 
   late List<DoodleStroke> _strokes;
   final ValueNotifier<int> _canvasRevision = ValueNotifier<int>(0);
+  final GlobalKey _paperKey = GlobalKey();
   Color _selectedColor = _palette.first;
   double _selectedWidth = _widths[1];
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -130,9 +147,22 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     setState(_strokes.clear);
   }
 
-  void _save() {
+  Future<void> _save() async {
+    if (_isSaving) return;
     _mediumHaptic();
-    Navigator.of(context).pop(_doodle);
+    final doodle = _doodle;
+    final sourceRect = _paperRect();
+    setState(() => _isSaving = true);
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pop(DoodleEditorResult(doodle: doodle, sourceRect: sourceRect));
+  }
+
+  Rect? _paperRect() {
+    final renderObject = _paperKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return null;
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
   }
 
   @override
@@ -147,125 +177,134 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
       key: const Key('doodle-editor-page'),
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-          child: Column(
-            children: [
-              _EditorHeader(date: widget.date, language: widget.language),
-              const SizedBox(height: 18),
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final size = Size.square(constraints.maxWidth);
-                        return GestureDetector(
-                          key: const Key('doodle-canvas'),
-                          behavior: HitTestBehavior.opaque,
-                          onPanStart: (details) => _startStroke(details, size),
-                          onPanUpdate: (details) =>
-                              _extendStroke(details, size),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(22),
-                              border: Border.all(
-                                color: const Color(0xFFD8DDD9),
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x190E0B07),
-                                  blurRadius: 28,
-                                  offset: Offset(0, 13),
+        child: Stack(
+          children: [
+            AbsorbPointer(
+              absorbing: _isSaving,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                child: Column(
+                  children: [
+                    _EditorHeader(date: widget.date, language: widget.language),
+                    const SizedBox(height: 18),
+                    Expanded(
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final size = Size.square(constraints.maxWidth);
+                              return GestureDetector(
+                                key: const Key('doodle-canvas'),
+                                behavior: HitTestBehavior.opaque,
+                                onPanStart: (details) =>
+                                    _startStroke(details, size),
+                                onPanUpdate: (details) =>
+                                    _extendStroke(details, size),
+                                child: DecoratedBox(
+                                  key: _paperKey,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(22),
+                                    border: Border.all(
+                                      color: const Color(0xFFD8DDD9),
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x190E0B07),
+                                        blurRadius: 28,
+                                        offset: Offset(0, 13),
+                                      ),
+                                    ],
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(21),
+                                    child: CustomPaint(
+                                      painter: DoodlePainter(
+                                        doodle: _doodle,
+                                        cacheGeometry: false,
+                                        repaint: _canvasRevision,
+                                      ),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                  ),
                                 ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(21),
-                              child: CustomPaint(
-                                painter: DoodlePainter(
-                                  doodle: _doodle,
-                                  cacheGeometry: false,
-                                  repaint: _canvasRevision,
-                                ),
-                                child: const SizedBox.expand(),
-                              ),
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _ColorPalette(
-                colors: _palette,
-                selected: _selectedColor,
-                onSelected: (color) {
-                  _selectionHaptic();
-                  setState(() => _selectedColor = color);
-                },
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  ..._widths.map(
-                    (width) => Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _WidthButton(
-                        width: width,
-                        selected: width == _selectedWidth,
-                        onTap: () {
-                          _selectionHaptic();
-                          setState(() => _selectedWidth = width);
-                        },
+                        ),
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    key: const Key('undo-doodle'),
-                    tooltip: _s.t('Geri al', 'Undo'),
-                    onPressed: _strokes.isEmpty ? null : _undo,
-                    icon: const Icon(Icons.undo_rounded),
-                  ),
-                  IconButton(
-                    key: const Key('clear-doodle'),
-                    tooltip: _s.t('Temizle', 'Clear'),
-                    onPressed: _strokes.isEmpty ? null : _clear,
-                    icon: const Icon(Icons.delete_outline_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: FilledButton(
-                  key: const Key('save-doodle'),
-                  onPressed: _save,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.inverseSurface,
-                    foregroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onInverseSurface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(17),
+                    const SizedBox(height: 16),
+                    _ColorPalette(
+                      colors: _palette,
+                      selected: _selectedColor,
+                      onSelected: (color) {
+                        _selectionHaptic();
+                        setState(() => _selectedColor = color);
+                      },
                     ),
-                  ),
-                  child: Text(
-                    _strokes.isEmpty
-                        ? _s.t('Boş bırak', 'Leave empty')
-                        : _s.t('Takvime yapıştır', 'Stick to calendar'),
-                  ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        ..._widths.map(
+                          (width) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: _WidthButton(
+                              width: width,
+                              selected: width == _selectedWidth,
+                              onTap: () {
+                                _selectionHaptic();
+                                setState(() => _selectedWidth = width);
+                              },
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          key: const Key('undo-doodle'),
+                          tooltip: _s.t('Geri al', 'Undo'),
+                          onPressed: _strokes.isEmpty ? null : _undo,
+                          icon: const Icon(Icons.undo_rounded),
+                        ),
+                        IconButton(
+                          key: const Key('clear-doodle'),
+                          tooltip: _s.t('Temizle', 'Clear'),
+                          onPressed: _strokes.isEmpty ? null : _clear,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: FilledButton(
+                        key: const Key('save-doodle'),
+                        onPressed: _save,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.inverseSurface,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onInverseSurface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(17),
+                          ),
+                        ),
+                        child: Text(
+                          _strokes.isEmpty
+                              ? _s.t('Boş bırak', 'Leave empty')
+                              : _s.t('Takvime yapıştır', 'Stick to calendar'),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

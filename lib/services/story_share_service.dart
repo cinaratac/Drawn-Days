@@ -47,7 +47,7 @@ class StoryShareService {
     final canvas = Canvas(recorder);
     final size = Size.square(_squareSize.toDouble());
     canvas.drawRect(Offset.zero & size, Paint()..color = Colors.white);
-    DoodlePainter(doodle: doodle).paint(canvas, size);
+    DoodlePainter(doodle: doodle, cacheGeometry: false).paint(canvas, size);
     return _encode(recorder, _squareSize, _squareSize);
   }
 
@@ -140,7 +140,10 @@ class StoryShareService {
         ..save()
         ..clipRect(rect.deflate(borderWidth))
         ..translate(rect.left, rect.top);
-      DoodlePainter(doodle: doodle).paint(canvas, rect.size);
+      DoodlePainter(
+        doodle: doodle,
+        cacheGeometry: false,
+      ).paint(canvas, rect.size);
       canvas.restore();
     }
 

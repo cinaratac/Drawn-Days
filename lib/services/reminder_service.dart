@@ -142,7 +142,7 @@ class LocalReminderService implements ReminderService {
     tz_data.initializeTimeZones();
     try {
       final timezone = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(timezone.identifier));
+      tz.setLocalLocation(_locationFor(timezone.identifier));
       await _plugin.initialize(
         settings: const InitializationSettings(
           android: AndroidInitializationSettings('ic_stat_drawn_days'),
@@ -168,6 +168,21 @@ class LocalReminderService implements ReminderService {
       _nativePluginsAvailable = false;
     }
     _initialized = true;
+  }
+
+  tz.Location _locationFor(String identifier) {
+    final normalized = identifier.trim();
+    if (normalized.isEmpty ||
+        normalized == 'GMT' ||
+        normalized == 'UTC' ||
+        normalized == 'Etc/GMT') {
+      return tz.getLocation('Etc/UTC');
+    }
+    try {
+      return tz.getLocation(normalized);
+    } catch (_) {
+      return tz.getLocation('Etc/UTC');
+    }
   }
 
   void _onNotificationResponse(NotificationResponse response) {

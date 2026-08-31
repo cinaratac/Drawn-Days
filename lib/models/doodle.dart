@@ -7,6 +7,18 @@ class Doodle {
 
   bool get isEmpty => strokes.isEmpty;
 
+  Doodle snapshot() => Doodle(
+    strokes: strokes
+        .map(
+          (stroke) => DoodleStroke(
+            points: List<Offset>.unmodifiable(stroke.points),
+            colorValue: stroke.colorValue,
+            width: stroke.width,
+          ),
+        )
+        .toList(growable: false),
+  );
+
   Map<String, Object?> toJson() => <String, Object?>{
     'strokes': strokes.map((stroke) => stroke.toJson()).toList(),
   };

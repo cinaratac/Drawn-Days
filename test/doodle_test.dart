@@ -1,4 +1,5 @@
 import 'package:drawn_days/models/doodle.dart';
+import 'package:drawn_days/services/story_share_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -22,5 +23,28 @@ void main() {
     ]);
     expect(restored.strokes.single.colorValue, 0xFFE56F4A);
     expect(restored.strokes.single.width, 6.5);
+  });
+
+  test('today share render uses updated stroke points', () async {
+    final points = <Offset>[const Offset(0.1, 0.1), const Offset(0.2, 0.2)];
+    final stroke = DoodleStroke(
+      points: points,
+      colorValue: 0xFF292621,
+      width: 8,
+    );
+    final doodle = Doodle(strokes: [stroke]);
+
+    final firstRender = await StoryShareService.renderTodaySquare(
+      doodle: doodle,
+    );
+    points
+      ..clear()
+      ..addAll([const Offset(0.8, 0.1), const Offset(0.9, 0.9)]);
+
+    final secondRender = await StoryShareService.renderTodaySquare(
+      doodle: doodle,
+    );
+
+    expect(secondRender, isNot(firstRender));
   });
 }
