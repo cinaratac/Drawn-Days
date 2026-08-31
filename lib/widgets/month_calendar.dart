@@ -38,6 +38,9 @@ class MonthCalendar extends StatefulWidget {
 
 class _MonthCalendarState extends State<MonthCalendar> {
   static const _navigationClearance = 90.0;
+  static const _monthHeaderExtent = 79.0;
+  static const _gridTopOffset = 77.0;
+  static const _monthGridRowCount = 6;
   static const _pastMonthCount = 1200;
   static const _futureMonthCount = 1200;
   static const _monthCount = _pastMonthCount + 1 + _futureMonthCount;
@@ -75,11 +78,9 @@ class _MonthCalendarState extends State<MonthCalendar> {
       }
       final currentIndex = _indexAtViewportCenter();
       if (!todayRequested && targetIndex == currentIndex) return;
-      final alignAtBottom = todayRequested && targetIndex == _currentMonthIndex;
-      final targetOffset = _offsetFor(
-        targetIndex,
-        alignAtBottom: alignAtBottom,
-      );
+      final targetOffset = todayRequested
+          ? _offsetForDateCentered(widget.today)
+          : _offsetFor(targetIndex);
       if ((targetOffset - _scrollController.offset).abs() < 1) return;
       if (todayRequested && widget.isActive) {
         final monthDistance = (currentIndex - targetIndex).abs();
@@ -142,6 +143,24 @@ class _MonthCalendarState extends State<MonthCalendar> {
         .toDouble();
   }
 
+  double _offsetForDateCentered(DateTime date) {
+    final monthIndex = _indexFor(date);
+    final firstDay = DateTime(date.year, date.month);
+    final leadingEmptyCells = widget.mondayFirst
+        ? firstDay.weekday - DateTime.monday
+        : firstDay.weekday % 7;
+    final dayIndex = leadingEmptyCells + date.day - 1;
+    final rowIndex = dayIndex ~/ 7;
+    final cellSize = (_itemExtent - _monthHeaderExtent) / _monthGridRowCount;
+    final cellCenterOffset =
+        _gridTopOffset + (rowIndex * cellSize) + (cellSize / 2);
+    return ((monthIndex * _itemExtent) +
+            cellCenterOffset -
+            (_viewportHeight / 2))
+        .clamp(0.0, _scrollController.position.maxScrollExtent)
+        .toDouble();
+  }
+
   void _handleScroll() {
     if (_itemExtent <= 0 || !_scrollController.hasClients) return;
     final index = _indexAtViewportCenter();
@@ -174,7 +193,7 @@ class _MonthCalendarState extends State<MonthCalendar> {
         final contentWidth = constraints.maxWidth;
         final cellSize = contentWidth / 7;
         final gridHeight = cellSize * 6;
-        final monthHeight = 79 + gridHeight;
+        final monthHeight = _monthHeaderExtent + gridHeight;
         _itemExtent = monthHeight;
         _viewportHeight = constraints.maxHeight;
 
@@ -252,13 +271,16 @@ class _MonthPage extends StatelessWidget {
     final dayCount = daysInMonth(month);
     const rowCount = 6;
 
+    final colors = Theme.of(context).colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      padding: const EdgeInsets.only(bottom: 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const SizedBox(height: 22, child: _NotebookBinding()),
           SizedBox(
-            height: 38,
+            height: 28,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -266,43 +288,43 @@ class _MonthPage extends StatelessWidget {
                 child: Text(
                   monthTitle(month, language),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: 17,
-                    letterSpacing: -0.3,
+                    color: colors.secondary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.1,
                   ),
                 ),
               ),
             ),
           ),
-          SizedBox(
-            height: 28,
+          Container(
+            height: 26,
+            decoration: BoxDecoration(
+              color: colors.primary,
+              borderRadius: BorderRadius.circular(7),
+            ),
             child: Row(
               children: weekdayNamesShort(language, mondayFirst: mondayFirst)
-                  .map((weekday) {
-                    return Expanded(
+                  .map(
+                    (weekday) => Expanded(
                       child: Center(
                         child: Text(
                           weekday.toUpperCase(),
                           style: Theme.of(context).textTheme.labelSmall
                               ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                                color: colors.onPrimary,
                                 fontSize: 9,
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: 0.35,
+                                letterSpacing: 0.45,
                               ),
                         ),
                       ),
-                    );
-                  })
+                    ),
+                  )
                   .toList(growable: false),
             ),
           ),
-          Divider(
-            height: 1,
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 1),
           LayoutBuilder(
             builder: (context, constraints) {
               final cellSize = constraints.maxWidth / 7;
@@ -370,6 +392,77 @@ class _EmptyMonthDayCell extends StatelessWidget {
   }
 }
 
+class _NotebookBinding extends StatelessWidget {
+  const _NotebookBinding();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _NotebookBindingPainter(
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _NotebookBindingPainter extends CustomPainter {
+  const _NotebookBindingPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final railPaint = Paint()
+      ..color = color.withValues(alpha: 0.18)
+      ..strokeWidth = 1.2;
+    final capPaint = Paint()..color = color.withValues(alpha: 0.88);
+    final tabPaint = Paint()..color = color.withValues(alpha: 0.66);
+    final wirePaint = Paint()
+      ..color = color.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final shadowPaint = Paint()..color = color.withValues(alpha: 0.08);
+    final shinePaint = Paint()..color = Colors.white.withValues(alpha: 0.82);
+
+    canvas.drawLine(Offset(0, 5.2), Offset(size.width, 5.2), railPaint);
+    canvas.drawLine(Offset(0, 15.4), Offset(size.width, 15.4), railPaint);
+
+    final ringCount = (size.width / 13).floor().clamp(14, 32).toInt();
+    final gap = size.width / ringCount;
+    for (var index = 0; index < ringCount; index++) {
+      final x = gap * (index + 0.5);
+      final capRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(x, 3.4), width: 4.2, height: 6.2),
+        const Radius.circular(1.2),
+      );
+      final tabRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(x, 12.6), width: 3.6, height: 9.8),
+        const Radius.circular(1),
+      );
+
+      canvas.drawRRect(tabRect.shift(const Offset(0, 0.9)), shadowPaint);
+      canvas.drawRRect(tabRect, tabPaint);
+      canvas.drawRRect(capRect, capPaint);
+      canvas.drawCircle(Offset(x, 15.9), 1.15, shinePaint);
+
+      final wire = Path()
+        ..moveTo(x - 3.7, 2.3)
+        ..cubicTo(x - 4.6, 6.5, x - 4.6, 12.8, x - 2.2, 16.0)
+        ..quadraticBezierTo(x, 18.6, x + 2.2, 16.0)
+        ..cubicTo(x + 4.6, 12.8, x + 4.6, 6.5, x + 3.7, 2.3);
+      canvas.drawPath(wire, wirePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NotebookBindingPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
 class _MonthDayCell extends StatelessWidget {
   const _MonthDayCell({
     super.key,
@@ -389,7 +482,6 @@ class _MonthDayCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final borderColor = today ? colors.primary : const Color(0xFFDFE3DF);
 
     return Semantics(
       button: !future,
@@ -402,7 +494,10 @@ class _MonthDayCell extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             border: Border.fromBorderSide(
-              BorderSide(color: borderColor, width: today ? 1.6 : 0.8),
+              BorderSide(
+                color: today ? colors.primary : const Color(0xFFDFE3DF),
+                width: today ? 1.6 : 0.8,
+              ),
             ),
           ),
           child: Stack(
@@ -446,13 +541,10 @@ class _MonthDayCell extends StatelessWidget {
                 ),
               if (today && doodle == null)
                 Center(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Icon(
-                      Icons.add_rounded,
-                      size: 18,
-                      color: colors.primary,
-                    ),
+                  child: Icon(
+                    Icons.add_rounded,
+                    size: 18,
+                    color: colors.primary,
                   ),
                 ),
             ],

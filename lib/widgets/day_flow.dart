@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
 import '../utils/calendar_utils.dart';
+import 'add_doodle_prompt.dart';
 import 'doodle_painter.dart';
 
 class DayFlow extends StatefulWidget {
@@ -160,12 +161,8 @@ class _FlowDayCard extends StatelessWidget {
           children: [
             Positioned.fill(
               child: doodle == null
-                  ? const Center(
-                      child: Icon(
-                        Icons.add_rounded,
-                        color: Color(0xFFD8D0C4),
-                        size: 30,
-                      ),
+                  ? Center(
+                      child: AddDoodlePrompt(language: language, onTap: onTap),
                     )
                   : DoodlePreview(
                       doodle: doodle!,

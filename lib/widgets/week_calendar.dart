@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
 import '../utils/calendar_utils.dart';
+import 'add_doodle_prompt.dart';
 import 'doodle_painter.dart';
 
-class WeekCalendar extends StatefulWidget {
+class WeekCalendar extends StatelessWidget {
   const WeekCalendar({
     super.key,
     required this.focusDate,
@@ -28,100 +28,75 @@ class WeekCalendar extends StatefulWidget {
   final AppLanguage language;
   final bool mondayFirst;
 
-  @override
-  State<WeekCalendar> createState() => _WeekCalendarState();
-}
-
-class _WeekCalendarState extends State<WeekCalendar> {
-  static const _daySpacing = 8.0;
-
-  final ScrollController _scrollController = ScrollController();
-  double _itemExtent = 0;
-
-  @override
-  void didUpdateWidget(covariant WeekCalendar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final todayRequested = oldWidget.todayRequest != widget.todayRequest;
-    final oldWeek = startOfWeek(
-      oldWidget.focusDate,
-      mondayFirst: oldWidget.mondayFirst,
-    );
-    final newWeek = startOfWeek(
-      widget.focusDate,
-      mondayFirst: widget.mondayFirst,
-    );
-    if (!todayRequested && isSameDay(oldWeek, newWeek)) {
-      return;
-    }
-
-    final targetIndex = todayRequested
-        ? (widget.mondayFirst
-              ? widget.today.weekday - 1
-              : widget.today.weekday % 7)
-        : 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients || _itemExtent <= 0) {
-        return;
-      }
-      final targetOffset = (targetIndex * _itemExtent).clamp(
-        0.0,
-        _scrollController.position.maxScrollExtent,
-      );
-      if (!widget.isActive) {
-        _scrollController.jumpTo(targetOffset);
-        return;
-      }
-      _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
+  static const _spacing = 8.0;
+  static const _navigationClearance = 90.0;
 
   @override
   Widget build(BuildContext context) {
-    final weekStart = startOfWeek(
-      widget.focusDate,
-      mondayFirst: widget.mondayFirst,
+    final weekStart = startOfWeek(focusDate, mondayFirst: mondayFirst);
+    final dates = List<DateTime>.generate(
+      7,
+      (index) => weekStart.add(Duration(days: index)),
     );
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final squareSide = constraints.maxWidth;
-        _itemExtent = squareSide + _daySpacing;
-        return ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.only(bottom: 90),
-          itemCount: 7,
-          itemExtent: _itemExtent,
-          scrollCacheExtent: ScrollCacheExtent.pixels(_itemExtent),
-          itemBuilder: (context, index) {
-            final date = weekStart.add(Duration(days: index));
-            final future = isAfterDay(date, widget.today);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: _daySpacing),
-              child: SizedBox.square(
-                dimension: squareSide,
-                child: RepaintBoundary(
-                  child: _WeekDayCard(
-                    key: Key('day-${dateKey(date)}'),
-                    date: date,
-                    today: isSameDay(date, widget.today),
-                    future: future,
-                    doodle: widget.doodles[dateKey(date)],
-                    onTap: future ? null : () => widget.onDayTap(date),
-                    language: widget.language,
-                  ),
+        return StretchingOverscrollIndicator(
+          axisDirection: AxisDirection.down,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: SizedBox(
+              height: constraints.maxHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  8,
+                  8,
+                  8,
+                  _navigationClearance,
+                ),
+                child: Column(
+                  children: List<Widget>.generate(4, (row) {
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          bottom: row == 3 ? 0 : _spacing,
+                        ),
+                        child: Row(
+                          children: List<Widget>.generate(2, (column) {
+                            final index = (row * 2) + column;
+                            if (index >= dates.length) {
+                              return const Expanded(child: SizedBox.expand());
+                            }
+
+                            final date = dates[index];
+                            final future = isAfterDay(date, today);
+                            return Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  right: column == 0 ? _spacing : 0,
+                                ),
+                                child: RepaintBoundary(
+                                  child: _WeekDayCard(
+                                    key: Key('day-${dateKey(date)}'),
+                                    date: date,
+                                    today: isSameDay(date, today),
+                                    future: future,
+                                    doodle: doodles[dateKey(date)],
+                                    onTap: future ? null : () => onDayTap(date),
+                                    language: language,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );
@@ -149,75 +124,98 @@ class _WeekDayCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.white,
-      elevation: future ? 0 : 1,
-      shadowColor: const Color(0x20000000),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.zero,
-        side: BorderSide(
-          color: today ? colors.primary : const Color(0xFFDFE3DF),
-          width: today ? 1.6 : 0.8,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: doodle == null
-                  ? Center(
-                      child: Icon(
-                        future ? Icons.lock_outline_rounded : Icons.add_rounded,
-                        color: future
-                            ? const Color(0xFF9AA39D)
-                            : const Color(0xFFD8D0C4),
-                        size: 30,
-                      ),
-                    )
-                  : Opacity(
-                      opacity: future ? 0.35 : 1,
-                      child: DoodlePreview(
-                        doodle: doodle!,
-                        padding: const EdgeInsets.fromLTRB(18, 42, 18, 18),
-                      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final shortSide = constraints.maxWidth < constraints.maxHeight
+            ? constraints.maxWidth
+            : constraints.maxHeight;
+        final scale = (shortSide / 230).clamp(0.58, 0.78).toDouble();
+        final horizontalInset = 16 * scale;
+        final topInset = 14 * scale;
+        final dateFontSize = (13 * scale).clamp(9.0, 13.0).toDouble();
+
+        return Material(
+          color: Colors.white,
+          elevation: future ? 0 : 1,
+          shadowColor: const Color(0x20000000),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.zero,
+            side: BorderSide(
+              color: today ? colors.primary : const Color(0xFFDFE3DF),
+              width: today ? 1.6 : 0.8,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: doodle == null
+                      ? Center(
+                          child: future
+                              ? Icon(
+                                  Icons.lock_outline_rounded,
+                                  color: const Color(0xFF9AA39D),
+                                  size: 30 * scale,
+                                )
+                              : AddDoodlePrompt(
+                                  language: language,
+                                  onTap: onTap,
+                                  scale: scale,
+                                ),
+                        )
+                      : Opacity(
+                          opacity: future ? 0.35 : 1,
+                          child: DoodlePreview(
+                            doodle: doodle!,
+                            padding: EdgeInsets.fromLTRB(
+                              18 * scale,
+                              42 * scale,
+                              18 * scale,
+                              18 * scale,
+                            ),
+                          ),
+                        ),
+                ),
+                Positioned(
+                  left: horizontalInset,
+                  top: topInset,
+                  child: Text(
+                    '${date.day} ${monthNames(language)[date.month - 1]}',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: future
+                          ? const Color(0xFF9EA59F)
+                          : today
+                          ? colors.primary
+                          : const Color(0xFF4F5751),
+                      fontSize: dateFontSize,
+                      fontWeight: FontWeight.w800,
                     ),
-            ),
-            Positioned(
-              left: 16,
-              top: 14,
-              child: Text(
-                '${date.day} ${monthNames(language)[date.month - 1]}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: future
-                      ? const Color(0xFF9EA59F)
-                      : today
-                      ? colors.primary
-                      : const Color(0xFF4F5751),
-                  fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-            ),
-            Positioned(
-              right: 16,
-              top: 14,
-              child: Text(
-                compactWeekdayName(date, language),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: future
-                      ? const Color(0xFF9EA59F)
-                      : today
-                      ? colors.primary
-                      : const Color(0xFF4F5751),
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
+                Positioned(
+                  right: horizontalInset,
+                  top: topInset,
+                  child: Text(
+                    compactWeekdayName(date, language),
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: future
+                          ? const Color(0xFF9EA59F)
+                          : today
+                          ? colors.primary
+                          : const Color(0xFF4F5751),
+                      fontSize: dateFontSize,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5 * scale,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

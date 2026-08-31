@@ -616,48 +616,64 @@ class _CalendarHomePageState extends State<CalendarHomePage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      bottomNavigationBar: CalendarBottomNavigation(
-        selected: _view,
-        onSelected: _selectView,
-        strings: _s,
+    final colors = Theme.of(context).colorScheme;
+    final appBarColor = colors.primary.withValues(alpha: 0.82);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: appBarColor,
+        statusBarBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Theme.of(context).scaffoldBackgroundColor,
       ),
-      body: ColoredBox(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 12, bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _CalendarAppBar(
-                    onToday: _goToToday,
-                    onShare: _sharing ? null : _openStoryShare,
-                    onSettings: _openSettings,
-                    onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
-                    onForward: _canUseRightArrow ? () => _movePeriod(1) : null,
-                    strings: _s,
-                  ),
+      child: Scaffold(
+        extendBody: true,
+        bottomNavigationBar: CalendarBottomNavigation(
+          selected: _view,
+          onSelected: _selectView,
+          strings: _s,
+        ),
+        body: ColoredBox(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                color: appBarColor,
+                padding: EdgeInsets.only(
+                  top: MediaQuery.paddingOf(context).top,
+                  left: 18,
+                  right: 18,
+                  bottom: 6,
                 ),
-                const SizedBox(height: 12),
-                Expanded(
+                child: _CalendarAppBar(
+                  onToday: _goToToday,
+                  onShare: _sharing ? null : _openStoryShare,
+                  onSettings: _openSettings,
+                  onBack: _canUseLeftArrow ? () => _movePeriod(-1) : null,
+                  onForward: _canUseRightArrow ? () => _movePeriod(1) : null,
+                  strings: _s,
+                  foregroundColor: colors.onPrimary,
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: _loading
-                      ? const Center(
-                          key: ValueKey('loading'),
+                      ? Center(
+                          key: const ValueKey('loading'),
                           child: SizedBox(
                             width: 22,
                             height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colors.primary,
+                            ),
                           ),
                         )
                       : _buildCalendarViews(),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -673,6 +689,7 @@ class _CalendarAppBar extends StatelessWidget {
     required this.onBack,
     required this.onForward,
     required this.strings,
+    required this.foregroundColor,
   });
 
   final VoidCallback onToday;
@@ -681,102 +698,138 @@ class _CalendarAppBar extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback? onForward;
   final AppStrings strings;
+  final Color foregroundColor;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 380;
-        return Row(
-          children: [
-            SizedBox(
-              width: compact ? 108 : 120,
-              height: 40,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Drawn Days',
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontSize: 18,
-                      letterSpacing: -0.4,
+        final compact = constraints.maxWidth < 390;
+        final iconSide = compact ? 36.0 : 40.0;
+        final logoWidth = compact ? 104.0 : 136.0;
+        final navButtonSide = compact ? 32.0 : 34.0;
+        final navGap = compact ? 2.0 : 4.0;
+        final navWidth = (navButtonSide * 2) + navGap;
+        final rightRegionWidth = (constraints.maxWidth - logoWidth) / 2;
+        final navRightInset = rightRegionWidth > navWidth
+            ? (rightRegionWidth - navWidth) / 2
+            : 0.0;
+
+        return SizedBox(
+          height: iconSide,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Align(
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: logoWidth,
+                  height: 40,
+                  child: ClipRect(
+                    child: Image.asset(
+                      'lib/assets/appname.png',
+                      fit: BoxFit.fitWidth,
+                      color: foregroundColor,
+                      colorBlendMode: BlendMode.srcIn,
+                      filterQuality: FilterQuality.high,
                     ),
                   ),
                 ),
               ),
-            ),
-            SizedBox(width: compact ? 2 : 4),
-            SizedBox(
-              width: compact ? 38 : 44,
-              height: 40,
-              child: IconButton(
-                key: const Key('open-settings'),
-                tooltip: strings.settings,
-                onPressed: onSettings,
-                icon: const Icon(Icons.tune_rounded, size: 20),
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                constraints: const BoxConstraints.tightFor(
-                  width: 40,
-                  height: 40,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox.square(
+                      dimension: iconSide,
+                      child: IconButton(
+                        key: const Key('open-settings'),
+                        tooltip: strings.settings,
+                        onPressed: onSettings,
+                        icon: Icon(
+                          Icons.settings_rounded,
+                          size: compact ? 19 : 20,
+                        ),
+                        color: foregroundColor,
+                        constraints: BoxConstraints.tightFor(
+                          width: iconSide,
+                          height: iconSide,
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    SizedBox.square(
+                      dimension: iconSide,
+                      child: IconButton(
+                        key: const Key('share-story'),
+                        tooltip: strings.share,
+                        onPressed: onShare,
+                        icon: Icon(
+                          Icons.share_rounded,
+                          size: compact ? 18 : 19,
+                        ),
+                        color: foregroundColor,
+                        constraints: BoxConstraints.tightFor(
+                          width: iconSide,
+                          height: iconSide,
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    SizedBox(
+                      width: compact ? 58 : 72,
+                      height: iconSide,
+                      child: TextButton(
+                        key: const Key('go-today'),
+                        onPressed: onToday,
+                        style: TextButton.styleFrom(
+                          foregroundColor: foregroundColor,
+                          minimumSize: Size.zero,
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            strings.today,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                padding: EdgeInsets.zero,
               ),
-            ),
-            SizedBox(
-              width: compact ? 68 : 82,
-              height: 40,
-              child: TextButton.icon(
-                key: const Key('go-today'),
-                onPressed: onToday,
-                icon: Icon(Icons.near_me_outlined, size: compact ? 16 : 17),
-                label: Text(
-                  strings.today,
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                ),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurfaceVariant,
-                  minimumSize: Size.zero,
-                  padding: EdgeInsets.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
+              Positioned(
+                right: navRightInset,
+                top: (iconSide - navButtonSide) / 2,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _NavigationButton(
+                      key: const Key('previous-period'),
+                      icon: Icons.chevron_left_rounded,
+                      onTap: onBack,
+                      size: navButtonSide,
+                    ),
+                    SizedBox(width: navGap),
+                    _NavigationButton(
+                      key: const Key('next-period'),
+                      icon: Icons.chevron_right_rounded,
+                      onTap: onForward,
+                      size: navButtonSide,
+                    ),
+                  ],
                 ),
               ),
-            ),
-            SizedBox(
-              width: compact ? 38 : 40,
-              height: 40,
-              child: IconButton(
-                key: const Key('share-story'),
-                tooltip: strings.share,
-                onPressed: onShare,
-                icon: const Icon(Icons.ios_share_rounded, size: 19),
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                constraints: BoxConstraints.tightFor(
-                  width: compact ? 38 : 40,
-                  height: 40,
-                ),
-                padding: EdgeInsets.zero,
-              ),
-            ),
-            const Spacer(),
-            _NavigationButton(
-              key: const Key('previous-period'),
-              icon: Icons.chevron_left_rounded,
-              onTap: onBack,
-            ),
-            SizedBox(width: compact ? 2 : 7),
-            _NavigationButton(
-              key: const Key('next-period'),
-              icon: Icons.chevron_right_rounded,
-              onTap: onForward,
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -784,29 +837,37 @@ class _CalendarAppBar extends StatelessWidget {
 }
 
 class _NavigationButton extends StatelessWidget {
-  const _NavigationButton({super.key, required this.icon, required this.onTap});
+  const _NavigationButton({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    this.size = 40,
+  });
 
   final IconData icon;
   final VoidCallback? onTap;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Material(
-      color: onTap == null ? colors.surfaceContainerHighest : colors.surface,
+      color: onTap == null
+          ? colors.surfaceContainerHighest.withValues(alpha: 0.78)
+          : Colors.white.withValues(alpha: 0.94),
       shape: const CircleBorder(),
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: SizedBox(
-          width: 40,
-          height: 40,
+          width: size,
+          height: size,
           child: Icon(
             icon,
-            size: 22,
+            size: size * 0.62,
             color: onTap == null
                 ? colors.onSurfaceVariant.withValues(alpha: 0.45)
-                : colors.onSurface,
+                : colors.primary,
           ),
         ),
       ),
