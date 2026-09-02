@@ -16,7 +16,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   static const _pages = <_GuideContent>[
     _GuideContent(
-      icon: Icons.auto_stories_rounded,
+      fallbackIcon: Icons.auto_stories_rounded,
       title: 'A visual diary, one day at a time.',
       body:
           'Drawn Days turns your calendar into a memory made of marks. No long entries. No pressure. Just what the day felt like.',
@@ -24,28 +24,32 @@ class _OnboardingPageState extends State<OnboardingPage> {
       showLogo: true,
     ),
     _GuideContent(
-      icon: Icons.gesture_rounded,
+      fallbackIcon: Icons.gesture_rounded,
+      assetPath: 'lib/assets/settingbutton.png',
       title: 'Scribble, don’t perform.',
       body:
           'This is not an art contest. A shape, a face, a messy line—anything can hold a memory. Your honest mark is enough.',
       accent: Color(0xFFF0B84B),
     ),
     _GuideContent(
-      icon: Icons.near_me_outlined,
+      fallbackIcon: Icons.near_me_outlined,
+      assetPath: 'lib/assets/todaybutton.png',
       title: 'Never lose today.',
       body:
           'Whenever you wander through past months, tap Today to return to the current day and leave your mark.',
       accent: Color(0xFF4D83A8),
     ),
     _GuideContent(
-      icon: Icons.ios_share_rounded,
+      fallbackIcon: Icons.ios_share_rounded,
+      assetPath: 'lib/assets/sharebutton.png',
       title: 'Turn your days into stories.',
       body:
           'Share a full month, today’s drawing, or your last seven days in Instagram-ready layouts—directly from the share button.',
       accent: Color(0xFF8A70A8),
     ),
     _GuideContent(
-      icon: Icons.edit_rounded,
+      fallbackIcon: Icons.edit_rounded,
+      assetPath: 'lib/assets/rightbutton.png',
       title: 'At least, draw one line.',
       body:
           'Unscribbled days are easy to forget. Come back each day, make one small mark, and let time become something you can see.',
@@ -182,15 +186,7 @@ class _GuidePage extends StatelessWidget {
                 color: content.accent.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(52),
               ),
-              child: content.showLogo
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(40),
-                      child: Image.asset(
-                        'lib/assets/app_icon.png',
-                        fit: BoxFit.cover,
-                      ),
-                    )
-                  : Icon(content.icon, size: 94, color: content.accent),
+              child: _GuideArt(content: content),
             ),
           ),
           const Spacer(),
@@ -220,16 +216,60 @@ class _GuidePage extends StatelessWidget {
 
 class _GuideContent {
   const _GuideContent({
-    required this.icon,
+    required this.fallbackIcon,
     required this.title,
     required this.body,
     required this.accent,
+    this.assetPath,
     this.showLogo = false,
   });
 
-  final IconData icon;
+  final IconData fallbackIcon;
   final String title;
   final String body;
   final Color accent;
+  final String? assetPath;
   final bool showLogo;
+}
+
+class _GuideArt extends StatelessWidget {
+  const _GuideArt({required this.content});
+
+  final _GuideContent content;
+
+  @override
+  Widget build(BuildContext context) {
+    if (content.showLogo) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(40),
+        child: Image.asset(
+          'lib/assets/app_icon.png',
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Icon(content.fallbackIcon, size: 94, color: content.accent);
+          },
+        ),
+      );
+    }
+
+    final path = content.assetPath;
+    if (path == null) {
+      return Icon(content.fallbackIcon, size: 94, color: content.accent);
+    }
+
+    return Center(
+      child: Image.asset(
+        path,
+        width: 110,
+        height: 110,
+        fit: BoxFit.contain,
+        color: content.accent,
+        colorBlendMode: BlendMode.srcIn,
+        filterQuality: FilterQuality.high,
+        errorBuilder: (context, error, stackTrace) {
+          return Icon(content.fallbackIcon, size: 94, color: content.accent);
+        },
+      ),
+    );
+  }
 }

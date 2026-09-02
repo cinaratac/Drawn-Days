@@ -25,6 +25,40 @@ void main() {
     expect(restored.strokes.single.width, 6.5);
   });
 
+  test('doodles with unchanged strokes have the same content', () {
+    const first = Doodle(
+      strokes: [
+        DoodleStroke(
+          points: [Offset(0.1, 0.2), Offset(0.8, 0.7)],
+          colorValue: 0xFFE56F4A,
+          width: 6.5,
+        ),
+      ],
+    );
+    const second = Doodle(
+      strokes: [
+        DoodleStroke(
+          points: [Offset(0.1, 0.2), Offset(0.8, 0.7)],
+          colorValue: 0xFFE56F4A,
+          width: 6.5,
+        ),
+      ],
+    );
+    const changed = Doodle(
+      strokes: [
+        DoodleStroke(
+          points: [Offset(0.1, 0.2), Offset(0.8, 0.8)],
+          colorValue: 0xFFE56F4A,
+          width: 6.5,
+        ),
+      ],
+    );
+
+    expect(first.hasSameContent(second), isTrue);
+    expect(first.hasSameContent(changed), isFalse);
+    expect(const Doodle(strokes: []).hasSameContent(null), isTrue);
+  });
+
   test('today share render uses updated stroke points', () async {
     final points = <Offset>[const Offset(0.1, 0.1), const Offset(0.2, 0.2)];
     final stroke = DoodleStroke(

@@ -337,7 +337,10 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       language: widget.settings.language,
     );
     if (result == null || !mounted) return;
+    final previousDoodle = _doodles[key];
     final resultDoodle = result.doodle;
+
+    if (resultDoodle.hasSameContent(previousDoodle)) return;
 
     if (resultDoodle.isEmpty) {
       await widget.repository.delete(key);

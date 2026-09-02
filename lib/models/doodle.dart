@@ -7,6 +7,15 @@ class Doodle {
 
   bool get isEmpty => strokes.isEmpty;
 
+  bool hasSameContent(Doodle? other) {
+    final otherStrokes = other?.strokes ?? const <DoodleStroke>[];
+    if (strokes.length != otherStrokes.length) return false;
+    for (var index = 0; index < strokes.length; index++) {
+      if (!strokes[index].hasSameContent(otherStrokes[index])) return false;
+    }
+    return true;
+  }
+
   Doodle snapshot() => Doodle(
     strokes: strokes
         .map(
@@ -52,6 +61,18 @@ class DoodleStroke {
   final List<Offset> points;
   final int colorValue;
   final double width;
+
+  bool hasSameContent(DoodleStroke other) {
+    if (colorValue != other.colorValue ||
+        width != other.width ||
+        points.length != other.points.length) {
+      return false;
+    }
+    for (var index = 0; index < points.length; index++) {
+      if (points[index] != other.points[index]) return false;
+    }
+    return true;
+  }
 
   DoodleStroke copyWith({List<Offset>? points}) => DoodleStroke(
     points: points ?? this.points,
