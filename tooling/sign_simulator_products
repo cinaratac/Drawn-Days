@@ -1,0 +1,56 @@
+#!/bin/sh
+
+set -eu
+
+app_path=${1:?Runner.app path is required}
+ios_project_dir=${2:?iOS project directory is required}
+platform_name=${3:-}
+
+"$ios_project_dir/../tooling/guard_xattrs" "$app_path" 30
+
+# Flutter disables Xcode's in-place signing for simulator builds because File
+# Provider metadata makes it unreliable. Sign a clean copy ourselves while
+# preserving App Group access for the app and its widget.
+if [ "$platform_name" != "iphonesimulator" ]; then
+  exit 0
+fi
+
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/drawn-days-runner.XXXXXX")
+temporary_app="$temporary_directory/Runner.app"
+
+cleanup() {
+  rm -rf "$temporary_directory"
+}
+trap cleanup EXIT HUP INT TERM
+
+# File Provider can restore metadata between xattr cleanup and codesign when
+# signing inside Desktop/iCloud. Copy without extended attributes and sign in
+# the system temporary directory, which is outside the synchronized location.
+/bin/cp -R -X "$app_path" "$temporary_app"
+/usr/bin/xattr -cr "$temporary_app" 2>/dev/null || true
+
+widget_path="$temporary_app/PlugIns/TodayWidget.appex"
+if [ -d "$widget_path" ]; then
+  /usr/bin/codesign \
+    --force \
+    --sign - \
+    --timestamp=none \
+    --entitlements "$ios_project_dir/TodayWidget/TodayWidget.entitlements" \
+    --generate-entitlement-der \
+    "$widget_path"
+fi
+
+/usr/bin/codesign \
+  --force \
+  --sign - \
+  --timestamp=none \
+  --entitlements "$ios_project_dir/Runner/Runner.entitlements" \
+  --generate-entitlement-der \
+  "$temporary_app"
+
+# The target is a disposable Xcode build product. Replacing it atomically keeps
+# the valid signature produced outside File Provider's reach.
+rm -rf "$app_path"
+mv "$temporary_app" "$app_path"
+trap - EXIT HUP INT TERM
+rmdir "$temporary_directory"

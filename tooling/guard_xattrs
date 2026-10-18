@@ -1,0 +1,36 @@
+#!/bin/sh
+
+set -u
+
+clean_target() {
+  guarded_target=$1
+  [ -e "$guarded_target" ] || return 0
+  /usr/bin/xattr -dr com.apple.FinderInfo "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr com.apple.ResourceFork "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr 'com.apple.fileprovider.fpfs#P' "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr com.apple.provenance "$guarded_target" 2>/dev/null || true
+  /usr/bin/xattr -dr com.apple.quarantine "$guarded_target" 2>/dev/null || true
+}
+
+if [ "${1:-}" = "--worker" ]; then
+  target_path=$2
+  remaining_passes=$3
+  while [ "$remaining_passes" -gt 0 ]; do
+    clean_target "$target_path"
+    /bin/sleep 0.1
+    remaining_passes=$((remaining_passes - 1))
+  done
+  exit 0
+fi
+
+target_path=${1:?A build product path is required}
+guard_seconds=${2:-30}
+guard_passes=$((guard_seconds * 10))
+
+# Clean once before returning from the Xcode phase, then keep the generated
+# bundle clean while Xcode performs its delayed debug and bundle signatures.
+clean_target "$target_path"
+/usr/bin/nohup "$0" --worker "$target_path" "$guard_passes" \
+  </dev/null >/dev/null 2>&1 &
+
+exit 0

@@ -1,0 +1,6 @@
+#include "Generated.xcconfig"
+
+// Simulator builds run locally and do not require Apple code signing. Disabling
+// it avoids macOS 26.5 rejecting generated bundles carrying provenance metadata.
+CODE_SIGNING_ALLOWED[sdk=iphonesimulator*] = NO
+CODE_SIGNING_REQUIRED[sdk=iphonesimulator*] = NO
