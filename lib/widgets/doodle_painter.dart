@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../models/doodle.dart';
+import '../theme/drawn_days_theme.dart';
 
 class DoodlePainter extends CustomPainter {
   const DoodlePainter({
     required this.doodle,
     this.stickerOutline = false,
     this.cacheGeometry = true,
+    this.darkInkReplacement,
+    this.fitSquare = true,
     super.repaint,
   });
 
   final Doodle doodle;
   final bool stickerOutline;
   final bool cacheGeometry;
+  final Color? darkInkReplacement;
+  final bool fitSquare;
 
   static final Expando<_StrokeGeometry> _geometryCache =
       Expando<_StrokeGeometry>('doodle-stroke-geometry');
@@ -21,7 +26,10 @@ class DoodlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final side = size.shortestSide;
     if (side <= 0) return;
-    final origin = Offset((size.width - side) / 2, (size.height - side) / 2);
+    final drawingSize = fitSquare ? Size.square(side) : size;
+    final origin = fitSquare
+        ? Offset((size.width - side) / 2, (size.height - side) / 2)
+        : Offset.zero;
 
     for (final stroke in doodle.strokes) {
       if (stroke.points.isEmpty) continue;
@@ -33,7 +41,7 @@ class DoodlePainter extends CustomPainter {
       canvas
         ..save()
         ..translate(origin.dx, origin.dy)
-        ..scale(side, side);
+        ..scale(drawingSize.width, drawingSize.height);
 
       if (stickerOutline) {
         _drawGeometry(
@@ -48,11 +56,16 @@ class DoodlePainter extends CustomPainter {
         );
       }
 
+      final strokeColor = Color(stroke.colorValue);
+      final displayColor =
+          darkInkReplacement != null && strokeColor.computeLuminance() <= 0.06
+          ? darkInkReplacement!
+          : strokeColor;
       _drawGeometry(
         canvas,
         geometry,
         Paint()
-          ..color = Color(stroke.colorValue)
+          ..color = displayColor
           ..strokeWidth = width / side
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round
@@ -103,7 +116,9 @@ class DoodlePainter extends CustomPainter {
   bool shouldRepaint(covariant DoodlePainter oldDelegate) =>
       oldDelegate.doodle != doodle ||
       oldDelegate.stickerOutline != stickerOutline ||
-      oldDelegate.cacheGeometry != cacheGeometry;
+      oldDelegate.cacheGeometry != cacheGeometry ||
+      oldDelegate.darkInkReplacement != darkInkReplacement ||
+      oldDelegate.fitSquare != fitSquare;
 }
 
 class _StrokeGeometry {
@@ -121,11 +136,13 @@ class DoodlePreview extends StatelessWidget {
     required this.doodle,
     this.padding = const EdgeInsets.all(4),
     this.stickerOutline = false,
+    this.adaptDarkInk = true,
   });
 
   final Doodle doodle;
   final EdgeInsets padding;
   final bool stickerOutline;
+  final bool adaptDarkInk;
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +157,11 @@ class DoodlePreview extends StatelessWidget {
             painter: DoodlePainter(
               doodle: doodle,
               stickerOutline: stickerOutline,
+              darkInkReplacement:
+                  adaptDarkInk &&
+                      Theme.of(context).brightness == Brightness.dark
+                  ? context.drawnTheme.ink
+                  : null,
             ),
             child: const SizedBox.expand(),
           ),

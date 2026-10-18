@@ -130,6 +130,124 @@ void main() {
     expect(find.byKey(const Key('you-are-here-marker')), findsOneWidget);
   });
 
+  testWidgets('opens and persists a month drawing separately', (tester) async {
+    await usePhoneSize(tester);
+    final repository = MemoryDoodleRepository();
+    await tester.pumpWidget(
+      DrawnDaysApp(
+        repository: repository,
+        settingsRepository: MemorySettingsRepository(
+          completedOnboardingSettings,
+        ),
+        today: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('month-drawing-toggle')).first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('month-drawing-panel')), findsOneWidget);
+    expect(find.byKey(const Key('fixed-month-drawing-mode')), findsOneWidget);
+
+    final gridSurfaceRect = tester.getRect(
+      find.byKey(const Key('month-grid-drawing-surface')),
+    );
+    final joinedCanvasRect = tester.getRect(
+      find.byKey(const Key('month-drawing-canvas')),
+    );
+    final headerSurfaceRect = tester.getRect(
+      find.byKey(const Key('month-header-drawing-surface')),
+    );
+    final joinedStart = Offset(
+      headerSurfaceRect.center.dx,
+      headerSurfaceRect.center.dy,
+    );
+    final joinedGesture = await tester.startGesture(joinedStart);
+    await joinedGesture.moveTo(
+      Offset(gridSurfaceRect.center.dx, gridSurfaceRect.top + 24),
+    );
+    await joinedGesture.moveTo(
+      Offset(gridSurfaceRect.center.dx + 10, gridSurfaceRect.bottom - 24),
+    );
+    await joinedGesture.moveTo(
+      Offset(joinedCanvasRect.center.dx + 20, joinedCanvasRect.top + 42),
+    );
+    await joinedGesture.up();
+    await tester.pumpAndSettle();
+
+    var saved = await repository.loadAll();
+    expect(
+      saved['month-header:2026-08-01']!.strokes.last.points.last.dy,
+      closeTo(1, .0001),
+    );
+    expect(
+      saved['month-grid:2026-08-01']!.strokes.last.points.first.dy,
+      closeTo(0, .0001),
+    );
+    expect(
+      saved['month-canvas:2026-08-01']!.strokes.first.points.first.dy,
+      closeTo(0, .0001),
+    );
+
+    final undo = find.byKey(const Key('month-drawing-undo'));
+    await tester.ensureVisible(undo);
+    await tester.pumpAndSettle();
+    await tester.tap(undo);
+    await tester.pumpAndSettle();
+    saved = await repository.loadAll();
+    expect(saved['month-header:2026-08-01'], isNull);
+    expect(saved['month-grid:2026-08-01'], isNull);
+    expect(saved['month-canvas:2026-08-01'], isNull);
+
+    final thickBrush = find.byKey(const Key('month-brush-10.5'));
+    await tester.ensureVisible(thickBrush);
+    await tester.pumpAndSettle();
+    await tester.tap(thickBrush);
+    await tester.pump();
+    final canvas = find.byKey(const Key('month-drawing-canvas'));
+    await tester.ensureVisible(canvas);
+    await tester.pumpAndSettle();
+    final canvasRect = tester.getRect(canvas);
+    await tester.dragFrom(
+      canvasRect.centerLeft + const Offset(30, 0),
+      const Offset(100, 35),
+    );
+    await tester.pumpAndSettle();
+
+    saved = await repository.loadAll();
+    expect(saved['month-header:2026-08-01'], isNull);
+    expect(saved['month-grid:2026-08-01'], isNull);
+    expect(saved['month-canvas:2026-08-01'], isNotNull);
+    expect(saved['month-canvas:2026-08-01']!.strokes, isNotEmpty);
+    expect(saved['month-canvas:2026-08-01']!.strokes.last.width, 10.5);
+    expect(saved['2026-08-01'], isNull);
+
+    final clear = find.byKey(const Key('month-drawing-clear'));
+    await tester.ensureVisible(clear);
+    await tester.pumpAndSettle();
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+    saved = await repository.loadAll();
+    expect(saved['month-header:2026-08-01'], isNull);
+    expect(saved['month-grid:2026-08-01'], isNull);
+    expect(saved['month-canvas:2026-08-01'], isNull);
+
+    final fixedMode = find.byKey(const Key('fixed-month-drawing-mode'));
+    final modePositionBefore = tester.getTopLeft(fixedMode);
+    await tester.drag(fixedMode, const Offset(-72, -54));
+    await tester.pumpAndSettle();
+    final modePositionAfter = tester.getTopLeft(fixedMode);
+    expect(modePositionAfter.dx, lessThan(modePositionBefore.dx));
+    expect(modePositionAfter.dy, lessThan(modePositionBefore.dy));
+    await tester.tap(fixedMode);
+    await tester.pumpAndSettle();
+    await tester.dragFrom(const Offset(196, 500), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    expect(fixedMode.hitTestable(), findsOneWidget);
+    await tester.tap(fixedMode);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('requests a store review after a few saved doodles', (
     tester,
   ) async {

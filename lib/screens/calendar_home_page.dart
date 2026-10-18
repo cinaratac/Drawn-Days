@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../services/paper_sound_service.dart';
 import '../services/reminder_service.dart';
 import '../services/story_share_service.dart';
 import '../services/today_home_widget_service.dart';
+import '../theme/drawn_days_theme.dart';
 import '../utils/calendar_utils.dart';
 import '../widgets/day_flow.dart';
 import '../widgets/doodle_editor_sheet.dart';
@@ -25,6 +27,10 @@ import '../widgets/week_calendar.dart';
 import 'settings_page.dart';
 
 enum CalendarView { month, week, flow }
+
+const _monthGridDoodlePrefix = 'month-grid:';
+const _monthHeaderDoodlePrefix = 'month-header:';
+const _monthCanvasDoodlePrefix = 'month-canvas:';
 
 Color _calendarAccentForMonth(int month) => const <Color>[
   Color(0xFFB25F3D),
@@ -77,6 +83,12 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   late CalendarView _view;
   int _todayRequest = 0;
   Map<String, Doodle> _doodles = <String, Doodle>{};
+  Map<String, Doodle> _monthGridDoodles = <String, Doodle>{};
+  Map<String, Doodle> _monthHeaderDoodles = <String, Doodle>{};
+  Map<String, Doodle> _monthCanvasDoodles = <String, Doodle>{};
+  final MonthDrawingController _monthDrawingController =
+      MonthDrawingController();
+  Future<void> _monthSaveQueue = Future<void>.value();
   final PaperSoundService _paperSoundService = PaperSoundService();
   bool _loading = true;
   StreamSubscription<Uri?>? _widgetClickSubscription;
@@ -85,6 +97,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   bool _openingWidgetEditor = false;
   bool _sharing = false;
   _SaveFlight? _saveFlight;
+  Offset _drawingModeButtonOffset = Offset.zero;
 
   AppStrings get _s => AppStrings(widget.settings.language);
   bool get _mondayFirst =>
@@ -127,6 +140,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     unawaited(_paperSoundService.dispose());
     _saveFlightController.dispose();
     _visibleMonth.dispose();
+    _monthDrawingController.dispose();
     super.dispose();
   }
 
@@ -136,10 +150,24 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   }
 
   Future<void> _loadDoodles() async {
-    final doodles = await widget.repository.loadAll();
+    final storedDoodles = await widget.repository.loadAll();
+    final doodles = <String, Doodle>{};
+    final monthGridDoodles = <String, Doodle>{};
+    final monthHeaderDoodles = <String, Doodle>{};
+    final monthCanvasDoodles = <String, Doodle>{};
+    _splitStoredDoodles(
+      storedDoodles,
+      daily: doodles,
+      monthGrid: monthGridDoodles,
+      monthHeader: monthHeaderDoodles,
+      monthCanvas: monthCanvasDoodles,
+    );
     if (!mounted) return;
     setState(() {
       _doodles = doodles;
+      _monthGridDoodles = monthGridDoodles;
+      _monthHeaderDoodles = monthHeaderDoodles;
+      _monthCanvasDoodles = monthCanvasDoodles;
       _loading = false;
     });
     final notificationLaunchUri = await widget.reminderService
@@ -148,6 +176,71 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     _handleEditorLaunch(notificationLaunchUri);
     _scheduleTodayWidgetSync();
     _openPendingWidgetEditor();
+  }
+
+  void _splitStoredDoodles(
+    Map<String, Doodle> stored, {
+    required Map<String, Doodle> daily,
+    required Map<String, Doodle> monthGrid,
+    required Map<String, Doodle> monthHeader,
+    required Map<String, Doodle> monthCanvas,
+  }) {
+    for (final entry in stored.entries) {
+      if (entry.key.startsWith(_monthGridDoodlePrefix)) {
+        monthGrid[entry.key.substring(_monthGridDoodlePrefix.length)] =
+            entry.value;
+      } else if (entry.key.startsWith(_monthHeaderDoodlePrefix)) {
+        monthHeader[entry.key.substring(_monthHeaderDoodlePrefix.length)] =
+            entry.value;
+      } else if (entry.key.startsWith(_monthCanvasDoodlePrefix)) {
+        monthCanvas[entry.key.substring(_monthCanvasDoodlePrefix.length)] =
+            entry.value;
+      } else {
+        daily[entry.key] = entry.value;
+      }
+    }
+  }
+
+  Map<String, Doodle> _allStoredDoodles() => <String, Doodle>{
+    ..._doodles,
+    for (final entry in _monthGridDoodles.entries)
+      '$_monthGridDoodlePrefix${entry.key}': entry.value,
+    for (final entry in _monthHeaderDoodles.entries)
+      '$_monthHeaderDoodlePrefix${entry.key}': entry.value,
+    for (final entry in _monthCanvasDoodles.entries)
+      '$_monthCanvasDoodlePrefix${entry.key}': entry.value,
+  };
+
+  void _saveMonthDoodle(DateTime month, MonthDoodleLayer layer, Doodle doodle) {
+    final monthKey = dateKey(DateTime(month.year, month.month));
+    final prefix = switch (layer) {
+      MonthDoodleLayer.header => _monthHeaderDoodlePrefix,
+      MonthDoodleLayer.grid => _monthGridDoodlePrefix,
+      MonthDoodleLayer.canvas => _monthCanvasDoodlePrefix,
+    };
+    final target = switch (layer) {
+      MonthDoodleLayer.header => _monthHeaderDoodles,
+      MonthDoodleLayer.grid => _monthGridDoodles,
+      MonthDoodleLayer.canvas => _monthCanvasDoodles,
+    };
+    setState(() {
+      if (doodle.isEmpty) {
+        target.remove(monthKey);
+      } else {
+        target[monthKey] = doodle;
+      }
+    });
+    final storageKey = '$prefix$monthKey';
+    _monthSaveQueue = _monthSaveQueue
+        .then(
+          (_) => doodle.isEmpty
+              ? widget.repository.delete(storageKey)
+              : widget.repository.save(storageKey, doodle),
+        )
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Month doodle save failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        });
   }
 
   Future<void> _initializeHomeWidgetLink() async {
@@ -245,11 +338,9 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     _ => true,
   };
 
-  bool get _canUseLeftArrow =>
-      _view == CalendarView.flow ? _canMoveForward : _canMoveBack;
+  bool get _canUseLeftArrow => _canMoveBack;
 
-  bool get _canUseRightArrow =>
-      _view == CalendarView.flow ? _canMoveBack : _canMoveForward;
+  bool get _canUseRightArrow => _canMoveForward;
 
   void _selectionHaptic() {
     if (widget.settings.hapticsEnabled) HapticFeedback.selectionClick();
@@ -277,11 +368,11 @@ class _CalendarHomePageState extends State<CalendarHomePage>
 
   void _movePeriod(int direction) {
     if (_view == CalendarView.flow) {
-      if (direction > 0 && !_canMoveBack) return;
-      if (direction < 0 && !_canMoveForward) return;
+      if (direction < 0 && !_canMoveBack) return;
+      if (direction > 0 && !_canMoveForward) return;
       _selectionHaptic();
       setState(() {
-        _focusDate = _focusDate.subtract(Duration(days: direction));
+        _focusDate = _focusDate.add(Duration(days: direction));
       });
       return;
     }
@@ -474,7 +565,12 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   Future<void> _clearDoodles() async {
     await widget.repository.clearAll();
     if (!mounted) return;
-    setState(() => _doodles = <String, Doodle>{});
+    setState(() {
+      _doodles = <String, Doodle>{};
+      _monthGridDoodles = <String, Doodle>{};
+      _monthHeaderDoodles = <String, Doodle>{};
+      _monthCanvasDoodles = <String, Doodle>{};
+    });
     _scheduleTodayWidgetSync();
     await widget.reminderService.updateDate(
       date: _today,
@@ -493,8 +589,15 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     if (_sharing) return;
     final format = await showModalBottomSheet<StoryShareFormat>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => _StoryShareSheet(strings: _s),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.24),
+      showDragHandle: false,
+      builder: (context) => _StoryShareSheet(
+        strings: _s,
+        today: _today,
+        todayDoodle: _doodles[dateKey(_today)],
+      ),
     );
     if (format == null || !mounted) return;
 
@@ -563,7 +666,9 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       'version': 1,
       'createdAt': DateTime.now().toIso8601String(),
       'settings': widget.settings.toJson(),
-      'doodles': _doodles.map((key, doodle) => MapEntry(key, doodle.toJson())),
+      'doodles': _allStoredDoodles().map(
+        (key, doodle) => MapEntry(key, doodle.toJson()),
+      ),
     });
     final bytes = Uint8List.fromList(utf8.encode(encoded));
     await SharePlus.instance.share(
@@ -601,7 +706,23 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       if (!settingsApplied) return false;
       await widget.repository.replaceAll(restoredDoodles);
       if (!mounted) return true;
-      setState(() => _doodles = restoredDoodles);
+      final daily = <String, Doodle>{};
+      final monthGrid = <String, Doodle>{};
+      final monthHeader = <String, Doodle>{};
+      final monthCanvas = <String, Doodle>{};
+      _splitStoredDoodles(
+        restoredDoodles,
+        daily: daily,
+        monthGrid: monthGrid,
+        monthHeader: monthHeader,
+        monthCanvas: monthCanvas,
+      );
+      setState(() {
+        _doodles = daily;
+        _monthGridDoodles = monthGrid;
+        _monthHeaderDoodles = monthHeader;
+        _monthCanvasDoodles = monthCanvas;
+      });
       _scheduleTodayWidgetSync();
       await widget.reminderService.updateDate(
         date: _today,
@@ -647,6 +768,11 @@ class _CalendarHomePageState extends State<CalendarHomePage>
             todayRequest: _todayRequest,
             isActive: _view == CalendarView.month,
             doodles: _doodles,
+            monthGridDoodles: _monthGridDoodles,
+            monthHeaderDoodles: _monthHeaderDoodles,
+            monthCanvasDoodles: _monthCanvasDoodles,
+            drawingController: _monthDrawingController,
+            onMonthDoodleChanged: _saveMonthDoodle,
             onDayTap: _editDay,
             onVisibleMonthChanged: _setVisibleMonth,
             onMonthChanged: _changeMonth,
@@ -694,14 +820,21 @@ class _CalendarHomePageState extends State<CalendarHomePage>
         fontFamily: 'PatrickHand',
       ),
     );
-    const paperColor = Color(0xFFF7F3E8);
+    final drawnTheme = context.drawnTheme;
+    final paperColor = drawnTheme.page;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final screenPadding = MediaQuery.paddingOf(context);
+    const modeButtonWidth = 38.0;
+    const modeButtonHeight = 34.0;
+    const modeButtonRight = 14.0;
+    final modeButtonBottom = 104 + screenPadding.bottom;
     return Theme(
       data: handwrittenTheme,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.dark.copyWith(
           statusBarColor: paperColor,
-          statusBarBrightness: Brightness.light,
-          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+          statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
           systemNavigationBarColor: paperColor,
         ),
         child: Scaffold(
@@ -717,7 +850,10 @@ class _CalendarHomePageState extends State<CalendarHomePage>
             children: [
               Positioned.fill(
                 child: CustomPaint(
-                  painter: const _PaperTexturePainter(),
+                  painter: _PaperTexturePainter(
+                    background: drawnTheme.page,
+                    speckle: drawnTheme.texture,
+                  ),
                   child: Column(
                     children: [
                       SizedBox(height: MediaQuery.paddingOf(context).top),
@@ -728,7 +864,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                           onShare: _sharing ? null : _openStoryShare,
                           onSettings: _openSettings,
                           strings: _s,
-                          foregroundColor: const Color(0xFF173F32),
+                          foregroundColor: drawnTheme.ink,
                         ),
                       ),
                       ValueListenableBuilder<DateTime>(
@@ -749,7 +885,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                               widget.settings.language,
                             ),
                           };
-                          return _CalendarPeriodBar(
+                          final periodBar = _CalendarPeriodBar(
                             title: title,
                             accentColor: _calendarAccentForMonth(
                               _view == CalendarView.month
@@ -764,6 +900,56 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                             onForward: _canUseRightArrow
                                 ? () => _movePeriod(1)
                                 : null,
+                          );
+                          if (_view != CalendarView.month) return periodBar;
+                          return ValueListenableBuilder<Doodle?>(
+                            valueListenable:
+                                _monthDrawingController.headerDoodle,
+                            builder: (context, headerDoodle, child) {
+                              return Stack(
+                                children: [
+                                  periodBar,
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      ignoring:
+                                          !_monthDrawingController.active ||
+                                          !_monthDrawingController
+                                              .drawingEnabled,
+                                      child: Listener(
+                                        key: _monthDrawingController.headerKey,
+                                        behavior: HitTestBehavior.opaque,
+                                        onPointerDown:
+                                            _monthDrawingController.pointerDown,
+                                        onPointerMove:
+                                            _monthDrawingController.pointerMove,
+                                        onPointerUp:
+                                            _monthDrawingController.pointerUp,
+                                        onPointerCancel:
+                                            _monthDrawingController.pointerUp,
+                                        child: CustomPaint(
+                                          key: const Key(
+                                            'month-header-drawing-surface',
+                                          ),
+                                          painter: DoodlePainter(
+                                            doodle:
+                                                headerDoodle ??
+                                                const Doodle(
+                                                  strokes: <DoodleStroke>[],
+                                                ),
+                                            fitSquare: false,
+                                            cacheGeometry: false,
+                                            darkInkReplacement: dark
+                                                ? drawnTheme.ink
+                                                : null,
+                                          ),
+                                          child: const SizedBox.expand(),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           );
                         },
                       ),
@@ -786,6 +972,58 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+              Positioned(
+                right: modeButtonRight,
+                bottom: modeButtonBottom,
+                child: Transform.translate(
+                  offset: _drawingModeButtonOffset,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onPanUpdate: (details) {
+                      final body = _bodyStackKey.currentContext
+                          ?.findRenderObject();
+                      if (body is! RenderBox || !body.hasSize) return;
+                      final baseLeft =
+                          body.size.width - modeButtonRight - modeButtonWidth;
+                      final baseTop =
+                          body.size.height -
+                          modeButtonBottom -
+                          modeButtonHeight;
+                      final next = _drawingModeButtonOffset + details.delta;
+                      setState(() {
+                        _drawingModeButtonOffset = Offset(
+                          next.dx.clamp(
+                            -baseLeft,
+                            body.size.width - modeButtonWidth - baseLeft,
+                          ),
+                          next.dy.clamp(
+                            screenPadding.top - baseTop,
+                            body.size.height -
+                                screenPadding.bottom -
+                                modeButtonHeight -
+                                baseTop,
+                          ),
+                        );
+                      });
+                    },
+                    child: ValueListenableBuilder<Doodle?>(
+                      valueListenable: _monthDrawingController.headerDoodle,
+                      builder: (context, doodle, child) {
+                        if (!_monthDrawingController.active ||
+                            _view != CalendarView.month) {
+                          return const SizedBox.shrink();
+                        }
+                        return MonthDrawingModeButton(
+                          key: const Key('fixed-month-drawing-mode'),
+                          drawingEnabled:
+                              _monthDrawingController.drawingEnabled,
+                          onTap: _monthDrawingController.toggleMode,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -1410,77 +1648,192 @@ class _TopSpiralPainter extends CustomPainter {
 }
 
 class _PaperTexturePainter extends CustomPainter {
-  const _PaperTexturePainter();
+  const _PaperTexturePainter({required this.background, required this.speckle});
+
+  final Color background;
+  final Color speckle;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFFF7F3E8),
-    );
-    final speckle = Paint()
-      ..color = const Color(0xFF6B6254).withValues(alpha: 0.035);
+    canvas.drawRect(Offset.zero & size, Paint()..color = background);
+    final specklePaint = Paint()..color = speckle;
     for (var y = 9.0; y < size.height; y += 17) {
       for (var x = 7.0; x < size.width; x += 19) {
         final offset = ((x * 3 + y * 5).toInt() % 7) - 3;
-        canvas.drawCircle(Offset(x + offset, y), 0.55, speckle);
+        canvas.drawCircle(Offset(x + offset, y), 0.55, specklePaint);
       }
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _PaperTexturePainter oldDelegate) =>
+      oldDelegate.background != background || oldDelegate.speckle != speckle;
 }
 
 class _StoryShareSheet extends StatelessWidget {
-  const _StoryShareSheet({required this.strings});
+  const _StoryShareSheet({
+    required this.strings,
+    required this.today,
+    required this.todayDoodle,
+  });
 
   final AppStrings strings;
+  final DateTime today;
+  final Doodle? todayDoodle;
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-              child: Text(
-                strings.shareDrawing,
-                style: Theme.of(context).textTheme.headlineSmall,
+    final drawnTheme = context.drawnTheme;
+    final height = (MediaQuery.sizeOf(context).height * .63).clamp(
+      510.0,
+      550.0,
+    );
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textTheme: Theme.of(context).textTheme.apply(fontFamily: 'PatrickHand'),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                top: 12,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: drawnTheme.page,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(30),
+                    ),
+                    border: Border(
+                      top: BorderSide(color: drawnTheme.ink, width: 2),
+                      left: BorderSide(color: drawnTheme.ink, width: 2),
+                      right: BorderSide(color: drawnTheme.ink, width: 2),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 10),
+                      const SizedBox(height: 17, child: _ShareHoles()),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 17, 14, 13),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Text(
+                                    strings.shareDrawing,
+                                    style: TextStyle(
+                                      color: drawnTheme.ink,
+                                      fontFamily: 'PatrickHand',
+                                      fontSize: 40,
+                                      height: 1,
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    left: 2,
+                                    bottom: -10,
+                                    width: 250,
+                                    height: 8,
+                                    child: CustomPaint(
+                                      painter: _ShareUnderlinePainter(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Material(
+                              color: drawnTheme.paper,
+                              elevation: 4,
+                              shadowColor: const Color(0x44293B37),
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                onTap: () => Navigator.of(context).pop(),
+                                customBorder: const CircleBorder(),
+                                child: SizedBox.square(
+                                  dimension: 50,
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    color: drawnTheme.ink,
+                                    size: 31,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: _StoryShareOption(
+                                  key: const Key('share-month-story'),
+                                  kind: _SharePreviewKind.month,
+                                  title: strings.monthStory,
+                                  subtitle: strings.monthStorySubtitle,
+                                  onTap: () => Navigator.of(
+                                    context,
+                                  ).pop(StoryShareFormat.monthGrid),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: _StoryShareOption(
+                                  key: const Key('share-today-square'),
+                                  kind: _SharePreviewKind.today,
+                                  title: strings.todaySquare,
+                                  subtitle: strings.todaySquareSubtitle,
+                                  today: today,
+                                  doodle: todayDoodle,
+                                  onTap: () => Navigator.of(
+                                    context,
+                                  ).pop(StoryShareFormat.todaySquare),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: _StoryShareOption(
+                                  key: const Key('share-recent-week'),
+                                  kind: _SharePreviewKind.week,
+                                  title: strings.recentWeekStory,
+                                  subtitle: strings.recentWeekStorySubtitle,
+                                  onTap: () => Navigator.of(
+                                    context,
+                                  ).pop(StoryShareFormat.recentWeek),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            _StoryShareOption(
-              key: const Key('share-month-story'),
-              icon: Icons.grid_view_rounded,
-              title: strings.monthStory,
-              subtitle: strings.monthStorySubtitle,
-              onTap: () =>
-                  Navigator.of(context).pop(StoryShareFormat.monthGrid),
-            ),
-            const SizedBox(height: 8),
-            _StoryShareOption(
-              key: const Key('share-today-square'),
-              icon: Icons.crop_square_rounded,
-              title: strings.todaySquare,
-              subtitle: strings.todaySquareSubtitle,
-              onTap: () =>
-                  Navigator.of(context).pop(StoryShareFormat.todaySquare),
-            ),
-            const SizedBox(height: 8),
-            _StoryShareOption(
-              key: const Key('share-recent-week'),
-              icon: Icons.view_module_rounded,
-              title: strings.recentWeekStory,
-              subtitle: strings.recentWeekStorySubtitle,
-              onTap: () =>
-                  Navigator.of(context).pop(StoryShareFormat.recentWeek),
-            ),
-          ],
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Transform.rotate(
+                    angle: -.018,
+                    child: Container(
+                      width: 98,
+                      height: 30,
+                      color: const Color(0xFFF2D974).withValues(alpha: .92),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1490,34 +1843,363 @@ class _StoryShareSheet extends StatelessWidget {
 class _StoryShareOption extends StatelessWidget {
   const _StoryShareOption({
     super.key,
-    required this.icon,
+    required this.kind,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.today,
+    this.doodle,
   });
 
-  final IconData icon;
+  final _SharePreviewKind kind;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final DateTime? today;
+  final Doodle? doodle;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: context.drawnTheme.paper,
+    elevation: 3,
+    shadowColor: const Color(0x552C3838),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(23),
+      side: BorderSide(color: context.drawnTheme.ink, width: 2),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(13, 8, 12, 8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 92,
+              child: _SharePreview(kind: kind, today: today, doodle: doodle),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: context.drawnTheme.ink,
+                      fontFamily: 'PatrickHand',
+                      fontSize: 27,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: context.drawnTheme.mutedInk,
+                      fontFamily: 'PatrickHand',
+                      fontSize: 18,
+                      height: 1.16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: context.drawnTheme.ink,
+              size: 31,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+enum _SharePreviewKind { month, today, week }
+
+class _SharePreview extends StatelessWidget {
+  const _SharePreview({required this.kind, this.today, this.doodle});
+  final _SharePreviewKind kind;
+  final DateTime? today;
+  final Doodle? doodle;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: colors.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.hardEdge,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        leading: Icon(icon, color: colors.primary),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right_rounded),
-        onTap: onTap,
+    final square = kind == _SharePreviewKind.today;
+    return Center(
+      child: Transform.rotate(
+        angle: kind == _SharePreviewKind.week ? .035 : -.035,
+        child: SizedBox(
+          width: square ? 82 : 57,
+          height: square ? 82 : 95,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFFFEF8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0x33293B37),
+                        blurRadius: 7,
+                        offset: Offset(2, 4),
+                      ),
+                    ],
+                  ),
+                  child: kind == _SharePreviewKind.today
+                      ? Stack(
+                          children: [
+                            if (doodle != null)
+                              Positioned.fill(
+                                child: DoodlePreview(
+                                  doodle: doodle!,
+                                  padding: const EdgeInsets.all(4),
+                                  adaptDarkInk: false,
+                                ),
+                              )
+                            else
+                              const Positioned.fill(
+                                child: CustomPaint(
+                                  painter: _ShareFacePainter(),
+                                ),
+                              ),
+                            Positioned(
+                              left: 7,
+                              top: 5,
+                              child: Text(
+                                '${today?.day ?? ''}',
+                                style: const TextStyle(
+                                  color: Color(0xFF1F3A2D),
+                                  fontFamily: 'PatrickHand',
+                                  fontSize: 17,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : CustomPaint(
+                          painter: _ShareGridPreviewPainter(
+                            week: kind == _SharePreviewKind.week,
+                          ),
+                        ),
+                ),
+              ),
+              Positioned(
+                top: -5,
+                left: square ? 26 : 15,
+                child: Container(
+                  width: square ? 31 : 27,
+                  height: 11,
+                  color:
+                      (kind == _SharePreviewKind.month
+                              ? const Color(0xFFA9C7DC)
+                              : kind == _SharePreviewKind.today
+                              ? const Color(0xFFF2D974)
+                              : const Color(0xFFE8B9A0))
+                          .withValues(alpha: .9),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
+}
+
+class _ShareHoles extends StatelessWidget {
+  const _ShareHoles();
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: const _ShareHolesPainter(),
+    child: const SizedBox.expand(),
+  );
+}
+
+class _ShareHolesPainter extends CustomPainter {
+  const _ShareHolesPainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final count = (size.width / 26).floor();
+    final gap = size.width / count;
+    for (var i = 0; i < count; i++) {
+      canvas.drawCircle(
+        Offset(gap * (i + .5), size.height / 2),
+        4.5,
+        Paint()..color = const Color(0xFFCFC8B4),
+      );
+      canvas.drawCircle(
+        Offset(gap * (i + .5), size.height / 2),
+        4.5,
+        Paint()
+          ..color = const Color(0xFF8C8672)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _ShareUnderlinePainter extends CustomPainter {
+  const _ShareUnderlinePainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPath(
+      Path()
+        ..moveTo(2, size.height * .6)
+        ..cubicTo(
+          size.width * .25,
+          0,
+          size.width * .45,
+          size.height,
+          size.width * .66,
+          size.height * .42,
+        )
+        ..cubicTo(
+          size.width * .81,
+          0,
+          size.width * .91,
+          size.height,
+          size.width - 2,
+          size.height * .35,
+        ),
+      Paint()
+        ..color = const Color(0xFFA8603A)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _ShareGridPreviewPainter extends CustomPainter {
+  const _ShareGridPreviewPainter({required this.week});
+  final bool week;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final columns = week ? 2 : 4;
+    final rows = week ? 4 : 8;
+    final grid = Paint()
+      ..color = const Color(0xFF2B3A36).withValues(alpha: .35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = .8;
+    for (var column = 1; column < columns; column++) {
+      final x = size.width * column / columns;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    }
+    for (var row = 1; row < rows; row++) {
+      final y = size.height * row / rows;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+    const colors = [
+      Color(0xFF4A7FA7),
+      Color(0xFFA8603A),
+      Color(0xFF8A5FB0),
+      Color(0xFF2E6B4A),
+      Color(0xFF2B3A36),
+    ];
+    for (
+      var index = 0;
+      index < math.min(columns * rows, week ? 7 : 18);
+      index++
+    ) {
+      final column = index % columns;
+      final row = index ~/ columns;
+      final left = size.width * column / columns;
+      final top = size.height * row / rows;
+      final cellWidth = size.width / columns;
+      final cellHeight = size.height / rows;
+      final paint = Paint()
+        ..color = colors[index % colors.length]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = week ? 1.5 : 1.05
+        ..strokeCap = StrokeCap.round;
+      if (index.isEven) {
+        canvas.drawPath(
+          Path()
+            ..moveTo(left + cellWidth * .18, top + cellHeight * .65)
+            ..lineTo(left + cellWidth * .42, top + cellHeight * .28)
+            ..lineTo(left + cellWidth * .72, top + cellHeight * .68),
+          paint,
+        );
+      } else {
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(left + cellWidth * .5, top + cellHeight * .5),
+            width: cellWidth * .58,
+            height: cellHeight * .58,
+          ),
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ShareGridPreviewPainter oldDelegate) =>
+      oldDelegate.week != week;
+}
+
+class _ShareFacePainter extends CustomPainter {
+  const _ShareFacePainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF2B3A36)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(
+      Path()
+        ..moveTo(size.width * .25, size.height * .42)
+        ..quadraticBezierTo(
+          size.width * .34,
+          size.height * .28,
+          size.width * .46,
+          size.height * .4,
+        ),
+      paint,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(size.width * .57, size.height * .39)
+        ..quadraticBezierTo(
+          size.width * .7,
+          size.height * .3,
+          size.width * .82,
+          size.height * .43,
+        ),
+      paint,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(size.width * .34, size.height * .7)
+        ..quadraticBezierTo(
+          size.width * .55,
+          size.height * .82,
+          size.width * .75,
+          size.height * .68,
+        ),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class CalendarBottomNavigation extends StatelessWidget {
@@ -1535,6 +2217,7 @@ class CalendarBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final drawnTheme = context.drawnTheme;
     return SafeArea(
       top: false,
       minimum: const EdgeInsets.only(bottom: 6),
@@ -1544,7 +2227,7 @@ class CalendarBottomNavigation extends StatelessWidget {
           key: const Key('calendar-bottom-bar'),
           width: 286,
           child: Material(
-            color: const Color(0xFFFFFEFA),
+            color: drawnTheme.navigation,
             elevation: 4,
             surfaceTintColor: Colors.transparent,
             shadowColor: Colors.black.withValues(alpha: 0.20),
@@ -1559,7 +2242,7 @@ class CalendarBottomNavigation extends StatelessWidget {
                   return IconThemeData(
                     color: states.contains(WidgetState.selected)
                         ? colors.primary
-                        : const Color(0xFF626862),
+                        : drawnTheme.mutedInk,
                   );
                 }),
               ),
@@ -1575,7 +2258,7 @@ class CalendarBottomNavigation extends StatelessWidget {
                   return TextStyle(
                     color: states.contains(WidgetState.selected)
                         ? colors.primary
-                        : const Color(0xFF626862),
+                        : drawnTheme.mutedInk,
                     fontFamily: 'PatrickHand',
                     fontSize: 13,
                     fontWeight: FontWeight.w400,

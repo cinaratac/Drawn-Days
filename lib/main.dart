@@ -9,10 +9,25 @@ import 'screens/calendar_home_page.dart';
 import 'screens/onboarding_page.dart';
 import 'services/app_review_service.dart';
 import 'services/reminder_service.dart';
+import 'theme/drawn_days_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const DrawnDaysApp());
+  final settingsRepository = FileSettingsRepository();
+  AppSettings settings;
+  try {
+    settings = await settingsRepository.load();
+  } catch (error, stackTrace) {
+    settings = const AppSettings();
+    debugPrint('Initial settings load failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+  runApp(
+    DrawnDaysApp(
+      settingsRepository: settingsRepository,
+      initialSettings: settings,
+    ),
+  );
 }
 
 class DrawnDaysApp extends StatefulWidget {
@@ -23,6 +38,7 @@ class DrawnDaysApp extends StatefulWidget {
     this.reminderService,
     this.appReviewService,
     this.today,
+    this.initialSettings,
   });
 
   final DoodleRepository? repository;
@@ -30,6 +46,7 @@ class DrawnDaysApp extends StatefulWidget {
   final ReminderService? reminderService;
   final AppReviewService? appReviewService;
   final DateTime? today;
+  final AppSettings? initialSettings;
 
   @override
   State<DrawnDaysApp> createState() => _DrawnDaysAppState();
@@ -40,13 +57,15 @@ class _DrawnDaysAppState extends State<DrawnDaysApp> {
   late final SettingsRepository _settingsRepository;
   late final ReminderService _reminderService;
   late final AppReviewService _appReviewService;
-  AppSettings _settings = const AppSettings();
-  bool _settingsLoaded = false;
+  late AppSettings _settings;
+  late bool _settingsLoaded;
   Future<void> _settingsUpdateTail = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
+    _settings = widget.initialSettings ?? const AppSettings();
+    _settingsLoaded = widget.initialSettings != null;
     _doodleRepository = widget.repository ?? FileDoodleRepository();
     _settingsRepository =
         widget.settingsRepository ??
@@ -63,7 +82,13 @@ class _DrawnDaysAppState extends State<DrawnDaysApp> {
         (widget.repository == null
             ? StoreAppReviewService()
             : MemoryAppReviewService());
-    _loadSettings();
+    if (_settingsLoaded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_refreshRemindersAfterLaunch(_settings));
+      });
+    } else {
+      _loadSettings();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -162,11 +187,39 @@ class _DrawnDaysAppState extends State<DrawnDaysApp> {
       secondary: accent,
       tertiary: accent,
     );
+    final drawnTheme = dark
+        ? const DrawnDaysTheme(
+            page: Color(0xFF171A18),
+            paper: Color(0xFF242A26),
+            ink: Color(0xFFF0F4F1),
+            mutedInk: Color(0xFFB7C1BA),
+            grid: Color(0xFF65736B),
+            texture: Color(0x0FFFFFFF),
+            shadow: Color(0x99000000),
+            navigation: Color(0xFF242A26),
+            selection: Color(0xFFD8BE55),
+            isPaper: false,
+          )
+        : paper
+        ? fallbackDrawnDaysTheme
+        : const DrawnDaysTheme(
+            page: Color(0xFFF3F6F4),
+            paper: Color(0xFFFFFFFF),
+            ink: Color(0xFF1D3029),
+            mutedInk: Color(0xFF5E6B65),
+            grid: Color(0xFF87938D),
+            texture: Color(0x00000000),
+            shadow: Color(0x2B53605A),
+            navigation: Color(0xFFFFFFFF),
+            selection: Color(0xFFF2D762),
+            isPaper: false,
+          );
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
       scaffoldBackgroundColor: background,
       colorScheme: scheme,
+      extensions: <ThemeExtension<dynamic>>[drawnTheme],
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
