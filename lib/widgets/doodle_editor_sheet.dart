@@ -4,15 +4,24 @@ import 'package:flutter/services.dart';
 import '../models/doodle.dart';
 import '../models/app_settings.dart';
 import '../l10n/app_strings.dart';
+import '../services/doodle_gallery_service.dart';
 import '../theme/drawn_days_theme.dart';
 import '../utils/calendar_utils.dart';
 import '../utils/doodle_eraser.dart';
 import 'doodle_painter.dart';
+import 'hand_drawn_heart.dart';
+import 'sketch_paper.dart';
+
+typedef DoodleDownloadCallback =
+    Future<void> Function(DateTime date, Doodle doodle);
 
 Future<DoodleEditorResult?> showDoodleEditor({
   required BuildContext context,
   required DateTime date,
   Doodle? initialDoodle,
+  bool initialFavorite = false,
+  Future<bool> Function(Doodle doodle, bool isFavorite)? onFavoriteChanged,
+  DoodleDownloadCallback? onDownload,
   bool hapticsEnabled = true,
   AppLanguage language = AppLanguage.english,
 }) {
@@ -23,6 +32,9 @@ Future<DoodleEditorResult?> showDoodleEditor({
       pageBuilder: (context, animation, secondaryAnimation) => DoodleEditorPage(
         date: date,
         initialDoodle: initialDoodle,
+        initialFavorite: initialFavorite,
+        onFavoriteChanged: onFavoriteChanged,
+        onDownload: onDownload,
         hapticsEnabled: hapticsEnabled,
         language: language,
       ),
@@ -37,10 +49,15 @@ Future<DoodleEditorResult?> showDoodleEditor({
 }
 
 class DoodleEditorResult {
-  const DoodleEditorResult({required this.doodle, required this.sourceRect});
+  const DoodleEditorResult({
+    required this.doodle,
+    required this.sourceRect,
+    required this.isFavorite,
+  });
 
   final Doodle doodle;
   final Rect? sourceRect;
+  final bool isFavorite;
 }
 
 class DoodleEditorPage extends StatefulWidget {
@@ -49,6 +66,9 @@ class DoodleEditorPage extends StatefulWidget {
     required this.date,
     required this.hapticsEnabled,
     required this.language,
+    required this.initialFavorite,
+    this.onFavoriteChanged,
+    this.onDownload,
     this.initialDoodle,
   });
 
@@ -56,6 +76,10 @@ class DoodleEditorPage extends StatefulWidget {
   final bool hapticsEnabled;
   final AppLanguage language;
   final Doodle? initialDoodle;
+  final bool initialFavorite;
+  final Future<bool> Function(Doodle doodle, bool isFavorite)?
+  onFavoriteChanged;
+  final DoodleDownloadCallback? onDownload;
 
   @override
   State<DoodleEditorPage> createState() => _DoodleEditorPageState();
@@ -87,10 +111,27 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
   bool _eraserEnabled = false;
   Offset? _lastEraserPoint;
   bool _isSaving = false;
+  bool _isExporting = false;
+  late bool _isFavorite;
+  bool _favoriteSaving = false;
+  final Map<int, Offset> _activePointers = <int, Offset>{};
+  int? _drawingPointer;
+  bool _transforming = false;
+  bool _waitForAllPointersUp = false;
+  double _zoom = 1;
+  Offset _pan = Offset.zero;
+  double _transformStartDistance = 1;
+  double _transformStartZoom = 1;
+  Offset _transformContentAnchor = Offset.zero;
+  List<DoodleStroke>? _singlePointerSnapshot;
+  Offset? _singlePointerStart;
+  bool _singlePointerMoved = false;
+  bool _strokeInterrupted = false;
 
   @override
   void initState() {
     super.initState();
+    _isFavorite = widget.initialFavorite;
     _strokes =
         widget.initialDoodle?.strokes
             .map(
@@ -112,16 +153,24 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     if (widget.hapticsEnabled) HapticFeedback.mediumImpact();
   }
 
-  Offset _normalized(Offset point, Size size) {
-    return Offset(
-      (point.dx / size.width).clamp(0.0, 1.0),
-      (point.dy / size.height).clamp(0.0, 1.0),
-    );
+  Offset? _normalizedIfInside(Offset point, Size size) {
+    if (point.dx < 0 ||
+        point.dy < 0 ||
+        point.dx > size.width ||
+        point.dy > size.height) {
+      return null;
+    }
+    return Offset(point.dx / size.width, point.dy / size.height);
   }
 
-  void _startStroke(DragStartDetails details, Size size) {
+  void _startStrokeAt(Offset localPosition, Size size) {
     _selectionHaptic();
-    final point = _normalized(details.localPosition, size);
+    final point = _normalizedIfInside(_toDrawingPosition(localPosition), size);
+    if (point == null) {
+      _strokeInterrupted = true;
+      return;
+    }
+    _strokeInterrupted = false;
     if (_eraserEnabled) {
       _lastEraserPoint = point;
       _eraseAt(point, point, size);
@@ -138,11 +187,34 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     });
   }
 
-  void _extendStroke(DragUpdateDetails details, Size size) {
-    final point = _normalized(details.localPosition, size);
+  void _extendStrokeAt(Offset localPosition, Size size) {
+    final point = _normalizedIfInside(_toDrawingPosition(localPosition), size);
+    if (point == null) {
+      _strokeInterrupted = true;
+      _lastEraserPoint = null;
+      return;
+    }
     if (_eraserEnabled) {
-      _eraseAt(_lastEraserPoint ?? point, point, size);
+      _eraseAt(
+        _strokeInterrupted ? point : (_lastEraserPoint ?? point),
+        point,
+        size,
+      );
       _lastEraserPoint = point;
+      _strokeInterrupted = false;
+      return;
+    }
+    if (_strokeInterrupted) {
+      setState(() {
+        _strokes.add(
+          DoodleStroke(
+            points: <Offset>[point],
+            colorValue: _selectedColor.toARGB32(),
+            width: _selectedWidth,
+          ),
+        );
+      });
+      _strokeInterrupted = false;
       return;
     }
     if (_strokes.isEmpty) return;
@@ -153,6 +225,106 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     }
     last.points.add(point);
     _canvasRevision.value++;
+  }
+
+  Offset _toDrawingPosition(Offset viewportPosition) =>
+      (viewportPosition - _pan) / _zoom;
+
+  void _handlePointerDown(PointerDownEvent event, Size size) {
+    _activePointers[event.pointer] = event.localPosition;
+    if (_activePointers.length == 1 && !_waitForAllPointersUp) {
+      _singlePointerSnapshot = _strokes
+          .map(
+            (stroke) =>
+                stroke.copyWith(points: List<Offset>.from(stroke.points)),
+          )
+          .toList();
+      _singlePointerStart = event.localPosition;
+      _singlePointerMoved = false;
+      _drawingPointer = event.pointer;
+      _startStrokeAt(event.localPosition, size);
+      return;
+    }
+    if (_activePointers.length >= 2) {
+      if (!_singlePointerMoved && _singlePointerSnapshot != null) {
+        setState(() => _strokes = _singlePointerSnapshot!);
+        _canvasRevision.value++;
+      }
+      _drawingPointer = null;
+      _lastEraserPoint = null;
+      _singlePointerSnapshot = null;
+      _singlePointerStart = null;
+      _waitForAllPointersUp = true;
+      _startTransformGesture();
+    }
+  }
+
+  void _handlePointerMove(PointerMoveEvent event, Size size) {
+    if (!_activePointers.containsKey(event.pointer)) return;
+    _activePointers[event.pointer] = event.localPosition;
+    if (_activePointers.length >= 2) {
+      if (!_transforming) _startTransformGesture();
+      _updateTransform(size);
+      return;
+    }
+    if (!_waitForAllPointersUp && _drawingPointer == event.pointer) {
+      if (!_singlePointerMoved &&
+          _singlePointerStart != null &&
+          (event.localPosition - _singlePointerStart!).distance < 2) {
+        return;
+      }
+      _singlePointerMoved = true;
+      _extendStrokeAt(event.localPosition, size);
+    }
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_drawingPointer == event.pointer) _drawingPointer = null;
+    _lastEraserPoint = null;
+    _strokeInterrupted = false;
+    _singlePointerSnapshot = null;
+    _singlePointerStart = null;
+    _singlePointerMoved = false;
+    if (_activePointers.length < 2) _transforming = false;
+    if (_activePointers.isEmpty) _waitForAllPointersUp = false;
+  }
+
+  void _startTransformGesture() {
+    if (_activePointers.length < 2) return;
+    final points = _activePointers.values.take(2).toList(growable: false);
+    final focal = Offset.lerp(points[0], points[1], .5)!;
+    _transformStartDistance = (points[0] - points[1]).distance.clamp(
+      1,
+      double.infinity,
+    );
+    _transformStartZoom = _zoom;
+    _transformContentAnchor = (focal - _pan) / _zoom;
+    _transforming = true;
+  }
+
+  void _updateTransform(Size size) {
+    final points = _activePointers.values.take(2).toList(growable: false);
+    if (points.length < 2) return;
+    final focal = Offset.lerp(points[0], points[1], .5)!;
+    final distance = (points[0] - points[1]).distance;
+    final nextZoom =
+        (_transformStartZoom * (distance / _transformStartDistance)).clamp(
+          1.0,
+          4.0,
+        );
+    final proposedPan = focal - (_transformContentAnchor * nextZoom);
+    final minPan = Offset(
+      size.width * (1 - nextZoom),
+      size.height * (1 - nextZoom),
+    );
+    setState(() {
+      _zoom = nextZoom;
+      _pan = Offset(
+        proposedPan.dx.clamp(minPan.dx, 0.0),
+        proposedPan.dy.clamp(minPan.dy, 0.0),
+      );
+    });
   }
 
   void _eraseAt(Offset from, Offset to, Size size) {
@@ -166,20 +338,54 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     if (Doodle(strokes: erased).hasSameContent(Doodle(strokes: _strokes))) {
       return;
     }
-    setState(() => _strokes = erased);
+    setState(() {
+      _strokes = erased;
+      if (_strokes.isEmpty) _isFavorite = false;
+    });
     _canvasRevision.value++;
   }
 
   void _undo() {
     if (_strokes.isEmpty) return;
     _selectionHaptic();
-    setState(_strokes.removeLast);
+    setState(() {
+      _strokes.removeLast();
+      if (_strokes.isEmpty) _isFavorite = false;
+    });
   }
 
   void _clear() {
     if (_strokes.isEmpty) return;
     _selectionHaptic();
-    setState(_strokes.clear);
+    setState(() {
+      _strokes.clear();
+      _isFavorite = false;
+    });
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_strokes.isEmpty || _favoriteSaving) return;
+    _selectionHaptic();
+    final previous = _isFavorite;
+    final next = !previous;
+    setState(() {
+      _isFavorite = next;
+      _favoriteSaving = true;
+    });
+    var applied = true;
+    try {
+      applied =
+          await widget.onFavoriteChanged?.call(_doodle.snapshot(), next) ??
+          true;
+    } catch (error, stackTrace) {
+      debugPrint('Favori durumu değiştirilemedi: $error\n$stackTrace');
+      applied = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _favoriteSaving = false;
+      if (!applied) _isFavorite = previous;
+    });
   }
 
   Future<void> _save() async {
@@ -189,9 +395,92 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
     final sourceRect = _paperRect();
     setState(() => _isSaving = true);
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pop(DoodleEditorResult(doodle: doodle, sourceRect: sourceRect));
+    Navigator.of(context).pop(
+      DoodleEditorResult(
+        doodle: doodle,
+        sourceRect: sourceRect,
+        isFavorite: _isFavorite && doodle.strokes.isNotEmpty,
+      ),
+    );
+  }
+
+  Future<void> _download() async {
+    if (_strokes.isEmpty || _isExporting) return;
+    _selectionHaptic();
+    setState(() => _isExporting = true);
+    try {
+      final doodle = _doodle.snapshot();
+      final callback = widget.onDownload;
+      if (callback != null) {
+        await callback(widget.date, doodle);
+      } else {
+        await DoodleGalleryService.save(date: widget.date, doodle: doodle);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          _downloadSnackBar(
+            _s.t('Çizim galeriye kaydedildi', 'Drawing saved to gallery'),
+          ),
+        );
+    } on DoodleGalleryPermissionException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          _downloadSnackBar(
+            _s.t(
+              'Galeri izni verilmedi',
+              'Photo library permission was not granted',
+            ),
+            error: true,
+          ),
+        );
+    } on DoodleGalleryPluginUnavailableException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          _downloadSnackBar(
+            _s.t(
+              'Galeri özelliği için uygulamayı tamamen kapatıp yeniden açın',
+              'Fully close and reopen the app to enable gallery saving',
+            ),
+            error: true,
+          ),
+        );
+    } catch (error, stackTrace) {
+      debugPrint('Çizim galeriye kaydedilemedi: $error\n$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          _downloadSnackBar(
+            _s.t('Çizim kaydedilemedi', 'Drawing could not be saved'),
+            error: true,
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  SnackBar _downloadSnackBar(String message, {bool error = false}) {
+    final theme = context.drawnTheme;
+    return SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: error ? const Color(0xFFB64F45) : theme.ink,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+      content: Text(
+        message,
+        style: TextStyle(
+          color: theme.paper,
+          fontFamily: 'PatrickHand',
+          fontSize: 17,
+        ),
+      ),
+    );
   }
 
   Rect? _paperRect() {
@@ -226,60 +515,140 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
                       _EditorHeader(
                         date: widget.date,
                         language: widget.language,
+                        downloadEnabled: _strokes.isNotEmpty && !_isExporting,
+                        onDownload: _download,
                       ),
                       const SizedBox(height: 18),
                       Expanded(
                         child: Center(
                           child: AspectRatio(
                             aspectRatio: 1,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final size = Size.square(constraints.maxWidth);
-                                return GestureDetector(
-                                  key: const Key('doodle-canvas'),
-                                  behavior: HitTestBehavior.opaque,
-                                  onPanStart: (details) =>
-                                      _startStroke(details, size),
-                                  onPanUpdate: (details) =>
-                                      _extendStroke(details, size),
-                                  onPanEnd: (_) => _lastEraserPoint = null,
-                                  onPanCancel: () => _lastEraserPoint = null,
-                                  child: DecoratedBox(
-                                    key: _paperKey,
-                                    decoration: BoxDecoration(
-                                      color: drawnTheme.paper,
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: drawnTheme.ink,
-                                        width: 1.7,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: drawnTheme.shadow,
-                                          blurRadius: 10,
-                                          offset: const Offset(3, 5),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Positioned(
+                                  left: 0,
+                                  top: 22,
+                                  right: 22,
+                                  bottom: 0,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Positioned.fill(
+                                        child: LayoutBuilder(
+                                          builder: (context, constraints) {
+                                            final size = Size.square(
+                                              constraints.maxWidth,
+                                            );
+                                            return Listener(
+                                              key: const Key('doodle-canvas'),
+                                              behavior: HitTestBehavior.opaque,
+                                              onPointerDown: (event) =>
+                                                  _handlePointerDown(
+                                                    event,
+                                                    size,
+                                                  ),
+                                              onPointerMove: (event) =>
+                                                  _handlePointerMove(
+                                                    event,
+                                                    size,
+                                                  ),
+                                              onPointerUp: _handlePointerEnd,
+                                              onPointerCancel:
+                                                  _handlePointerEnd,
+                                              child: CustomPaint(
+                                                key: _paperKey,
+                                                painter: SketchPaperPainter(
+                                                  paper: drawnTheme.paper,
+                                                  ink: drawnTheme.ink,
+                                                  shadow: drawnTheme.shadow,
+                                                  borderWidth: 1.7,
+                                                ),
+                                                child: ClipPath(
+                                                  clipper:
+                                                      const SketchPaperClipper(),
+                                                  child: ColoredBox(
+                                                    color: drawnTheme.paper,
+                                                    child: ClipRect(
+                                                      child: Transform(
+                                                        key: const Key(
+                                                          'doodle-zoom-layer',
+                                                        ),
+                                                        transform:
+                                                            Matrix4.identity()
+                                                              ..translateByDouble(
+                                                                _pan.dx,
+                                                                _pan.dy,
+                                                                0,
+                                                                1,
+                                                              )
+                                                              ..scaleByDouble(
+                                                                _zoom,
+                                                                _zoom,
+                                                                1,
+                                                                1,
+                                                              ),
+                                                        alignment:
+                                                            Alignment.topLeft,
+                                                        child: CustomPaint(
+                                                          painter: DoodlePainter(
+                                                            doodle: _doodle,
+                                                            cacheGeometry:
+                                                                false,
+                                                            repaint:
+                                                                _canvasRevision,
+                                                            darkInkReplacement:
+                                                                Theme.of(
+                                                                      context,
+                                                                    ).brightness ==
+                                                                    Brightness
+                                                                        .dark
+                                                                ? drawnTheme.ink
+                                                                : null,
+                                                          ),
+                                                          child:
+                                                              const SizedBox.expand(),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
                                         ),
-                                      ],
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(21),
-                                      child: CustomPaint(
-                                        painter: DoodlePainter(
-                                          doodle: _doodle,
-                                          cacheGeometry: false,
-                                          repaint: _canvasRevision,
-                                          darkInkReplacement:
-                                              Theme.of(context).brightness ==
-                                                  Brightness.dark
-                                              ? drawnTheme.ink
-                                              : null,
-                                        ),
-                                        child: const SizedBox.expand(),
                                       ),
+                                      const Positioned(
+                                        top: -7,
+                                        left: 0,
+                                        right: 0,
+                                        child: IgnorePointer(
+                                          child: Center(
+                                            child: SketchTape(
+                                              width: 88,
+                                              height: 20,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 0,
+                                  right: 0,
+                                  child: Transform.rotate(
+                                    angle: -.11,
+                                    child: _FavoriteCanvasButton(
+                                      favorite: _isFavorite,
+                                      enabled:
+                                          _strokes.isNotEmpty &&
+                                          !_favoriteSaving,
+                                      onTap: _toggleFavorite,
                                     ),
                                   ),
-                                );
-                              },
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -381,10 +750,17 @@ class _DoodleEditorPageState extends State<DoodleEditorPage> {
 }
 
 class _EditorHeader extends StatelessWidget {
-  const _EditorHeader({required this.date, required this.language});
+  const _EditorHeader({
+    required this.date,
+    required this.language,
+    required this.downloadEnabled,
+    required this.onDownload,
+  });
 
   final DateTime date;
   final AppLanguage language;
+  final bool downloadEnabled;
+  final VoidCallback onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -422,6 +798,18 @@ class _EditorHeader extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+        const SizedBox(width: 4),
+        Transform.rotate(
+          angle: .055,
+          child: _EditorToolButton(
+            key: const Key('download-doodle'),
+            tooltip: AppStrings(
+              language,
+            ).t('Galeriye kaydet', 'Save to gallery'),
+            onPressed: downloadEnabled ? onDownload : null,
+            icon: _EditorToolIcon.download,
           ),
         ),
       ],
@@ -559,6 +947,108 @@ class _EraserButton extends StatelessWidget {
   }
 }
 
+class _FavoriteCanvasButton extends StatelessWidget {
+  const _FavoriteCanvasButton({
+    required this.favorite,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final bool favorite;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.drawnTheme;
+    final red = enabled
+        ? const Color(0xFFB64F45)
+        : theme.mutedInk.withValues(alpha: .34);
+    return Tooltip(
+      message: favorite ? 'Favorilerden çıkar' : 'Favorilere ekle',
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        selected: favorite,
+        label: favorite ? 'Favorilerden çıkar' : 'Favorilere ekle',
+        child: GestureDetector(
+          key: const Key('toggle-doodle-favorite'),
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : null,
+          child: SizedBox.square(
+            dimension: 44,
+            child: CustomPaint(
+              painter: _FavoriteButtonBackgroundPainter(
+                fill: theme.paper.withValues(alpha: .92),
+                outline: favorite ? red : theme.grid.withValues(alpha: .58),
+              ),
+              child: Center(
+                child: HandDrawnHeart(color: red, filled: favorite, size: 27),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FavoriteButtonBackgroundPainter extends CustomPainter {
+  const _FavoriteButtonBackgroundPainter({
+    required this.fill,
+    required this.outline,
+  });
+
+  final Color fill;
+  final Color outline;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(size.width * .52, 2)
+      ..cubicTo(
+        size.width * .80,
+        1,
+        size.width - 2,
+        size.height * .22,
+        size.width - 2.5,
+        size.height * .52,
+      )
+      ..cubicTo(
+        size.width - 2,
+        size.height * .80,
+        size.width * .74,
+        size.height - 1.5,
+        size.width * .46,
+        size.height - 2,
+      )
+      ..cubicTo(
+        size.width * .17,
+        size.height - 1,
+        1.5,
+        size.height * .74,
+        2.5,
+        size.height * .44,
+      )
+      ..cubicTo(3, size.height * .15, size.width * .24, 2, size.width * .52, 2)
+      ..close();
+    canvas
+      ..drawPath(path, Paint()..color = fill)
+      ..drawPath(
+        path,
+        Paint()
+          ..color = outline
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..strokeCap = StrokeCap.round,
+      );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FavoriteButtonBackgroundPainter oldDelegate) =>
+      oldDelegate.fill != fill || oldDelegate.outline != outline;
+}
+
 class _EditorToolButton extends StatelessWidget {
   const _EditorToolButton({
     super.key,
@@ -606,7 +1096,7 @@ class _EditorToolButton extends StatelessWidget {
   }
 }
 
-enum _EditorToolIcon { close, undo, trash }
+enum _EditorToolIcon { close, download, undo, trash }
 
 class _EditorToolPainter extends CustomPainter {
   const _EditorToolPainter({
@@ -689,6 +1179,45 @@ class _EditorToolPainter extends CustomPainter {
                 size.width * .53,
                 size.height * .48,
                 size.width * .32,
+                size.height * .68,
+              ),
+            paint,
+          );
+      case _EditorToolIcon.download:
+        canvas
+          ..drawPath(
+            Path()
+              ..moveTo(size.width * .50, size.height * .23)
+              ..cubicTo(
+                size.width * .48,
+                size.height * .36,
+                size.width * .52,
+                size.height * .48,
+                size.width * .50,
+                size.height * .62,
+              )
+              ..moveTo(size.width * .37, size.height * .50)
+              ..quadraticBezierTo(
+                size.width * .44,
+                size.height * .57,
+                size.width * .50,
+                size.height * .63,
+              )
+              ..quadraticBezierTo(
+                size.width * .57,
+                size.height * .56,
+                size.width * .64,
+                size.height * .49,
+              ),
+            paint,
+          )
+          ..drawPath(
+            Path()
+              ..moveTo(size.width * .28, size.height * .69)
+              ..quadraticBezierTo(
+                size.width * .49,
+                size.height * .73,
+                size.width * .73,
                 size.height * .68,
               ),
             paint,

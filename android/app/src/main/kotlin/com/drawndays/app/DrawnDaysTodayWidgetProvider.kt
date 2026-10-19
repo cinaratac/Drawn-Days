@@ -66,3 +66,47 @@ class DrawnDaysTodayWidgetProvider : HomeWidgetProvider() {
         }
     }
 }
+
+abstract class DrawnDaysArtworkWidgetProvider(
+    private val artworkKey: String,
+    private val destination: String,
+) : HomeWidgetProvider() {
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray,
+        widgetData: SharedPreferences,
+    ) {
+        val imagePath = widgetData.getString(artworkKey, null)
+        val bitmap = imagePath?.let(BitmapFactory::decodeFile)
+        appWidgetIds.forEach { widgetId ->
+            val views = RemoteViews(context.packageName, R.layout.drawn_days_artwork_widget).apply {
+                if (bitmap != null) {
+                    setImageViewBitmap(R.id.widget_artwork, bitmap)
+                    setViewVisibility(R.id.widget_artwork, View.VISIBLE)
+                    setViewVisibility(R.id.widget_artwork_placeholder, View.GONE)
+                } else {
+                    setViewVisibility(R.id.widget_artwork, View.GONE)
+                    setViewVisibility(R.id.widget_artwork_placeholder, View.VISIBLE)
+                }
+                val launchIntent = HomeWidgetLaunchIntent.getActivity(
+                    context,
+                    MainActivity::class.java,
+                    Uri.parse(destination),
+                )
+                setOnClickPendingIntent(R.id.widget_container, launchIntent)
+            }
+            appWidgetManager.updateAppWidget(widgetId, views)
+        }
+    }
+}
+
+class DrawnDaysWeekWidgetProvider : DrawnDaysArtworkWidgetProvider(
+    artworkKey = "week_widget",
+    destination = "drawndays://calendar/week?homeWidget",
+)
+
+class DrawnDaysMonthWidgetProvider : DrawnDaysArtworkWidgetProvider(
+    artworkKey = "month_widget",
+    destination = "drawndays://calendar/month?homeWidget",
+)

@@ -8,6 +8,7 @@ import '../theme/drawn_days_theme.dart';
 import '../utils/calendar_utils.dart';
 import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
+import 'sketch_paper.dart';
 
 class DayFlow extends StatefulWidget {
   const DayFlow({
@@ -423,14 +424,7 @@ class _TodayBadge extends StatelessWidget {
 class _PaperTape extends StatelessWidget {
   const _PaperTape();
   @override
-  Widget build(BuildContext context) => Transform.rotate(
-    angle: -.025,
-    child: Container(
-      width: 94,
-      height: 26,
-      color: const Color(0xFFF2D762).withValues(alpha: .72),
-    ),
-  );
+  Widget build(BuildContext context) => const SketchTape(width: 94, height: 26);
 }
 
 class _StackedPaperPainter extends CustomPainter {
@@ -450,32 +444,28 @@ class _StackedPaperPainter extends CustomPainter {
       ..color = grid.withValues(alpha: .5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(-2, 13, size.width - 3, size.height - 7),
-        const Radius.circular(18),
-      ),
+    canvas.drawPath(
+      SketchPaperPath.create(size, offset: const Offset(-2, 10)),
       backPaint,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(8, 7, size.width - 4, size.height - 2),
-        const Radius.circular(18),
-      ),
+    canvas.drawPath(
+      SketchPaperPath.create(size, offset: const Offset(7, 5)),
       backPaint,
     );
-    final front = RRect.fromRectAndRadius(
-      Rect.fromLTWH(2, 1, size.width - 5, size.height - 5),
-      const Radius.circular(18),
+    final front = SketchPaperPath.create(size);
+    canvas.drawPath(
+      SketchPaperPath.create(size, offset: const Offset(3, 4)),
+      Paint()..color = shadow,
     );
-    canvas.drawShadow(Path()..addRRect(front), shadow, 5, false);
-    canvas.drawRRect(front, Paint()..color = surface);
-    canvas.drawRRect(
+    canvas.drawPath(front, Paint()..color = surface);
+    canvas.drawPath(
       front,
       Paint()
-        ..color = ink
+        ..color = ink.withValues(alpha: .78)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
     );
   }
 
@@ -502,13 +492,10 @@ class _StripCardPainter extends CustomPainter {
   final Color grid;
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(13),
-    );
+    final path = SketchPaperPath.create(size);
     if (!empty || selected) {
-      canvas.drawRRect(
-        rect,
+      canvas.drawPath(
+        path,
         Paint()..color = selected ? const Color(0xFFF2D77A) : surface,
       );
     }
@@ -517,10 +504,9 @@ class _StripCardPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = selected ? 2.5 : 1.4;
     if (!empty || selected) {
-      canvas.drawRRect(rect, border);
+      canvas.drawPath(path, border);
       return;
     }
-    final path = Path()..addRRect(rect);
     for (final metric in path.computeMetrics()) {
       for (var d = 0.0; d < metric.length; d += 8) {
         canvas.drawPath(

@@ -1,8 +1,13 @@
+import 'dart:ui' as ui;
+
+import 'package:drawn_days/models/app_settings.dart';
 import 'package:drawn_days/models/doodle.dart';
 import 'package:drawn_days/services/story_share_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('doodle survives a JSON round trip', () {
     const doodle = Doodle(
       strokes: [
@@ -69,16 +74,52 @@ void main() {
     final doodle = Doodle(strokes: [stroke]);
 
     final firstRender = await StoryShareService.renderTodaySquare(
+      date: DateTime(2026, 8, 21),
       doodle: doodle,
+      language: AppLanguage.english,
     );
     points
       ..clear()
       ..addAll([const Offset(0.8, 0.1), const Offset(0.9, 0.9)]);
 
     final secondRender = await StoryShareService.renderTodaySquare(
+      date: DateTime(2026, 8, 21),
       doodle: doodle,
+      language: AppLanguage.english,
     );
 
     expect(secondRender, isNot(firstRender));
+  });
+
+  test('month and week collages render in story dimensions', () async {
+    const doodle = Doodle(
+      strokes: [
+        DoodleStroke(
+          points: [Offset(0.2, 0.3), Offset(0.8, 0.7)],
+          colorValue: 0xFF173F32,
+          width: 6.5,
+        ),
+      ],
+    );
+    final doodles = <String, Doodle>{'2026-10-18': doodle};
+    final monthBytes = await StoryShareService.renderMonthGrid(
+      month: DateTime(2026, 10),
+      doodles: doodles,
+      language: AppLanguage.english,
+    );
+    final weekBytes = await StoryShareService.renderRecentWeek(
+      today: DateTime(2026, 10, 18),
+      doodles: doodles,
+      language: AppLanguage.english,
+    );
+
+    for (final bytes in [monthBytes, weekBytes]) {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final image = (await codec.getNextFrame()).image;
+      expect(image.width, 1080);
+      expect(image.height, 1920);
+      image.dispose();
+      codec.dispose();
+    }
   });
 }

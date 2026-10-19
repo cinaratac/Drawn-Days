@@ -24,6 +24,8 @@ import '../widgets/doodle_editor_sheet.dart';
 import '../widgets/doodle_painter.dart';
 import '../widgets/month_calendar.dart';
 import '../widgets/week_calendar.dart';
+import '../widgets/hand_drawn_heart.dart';
+import 'favorites_page.dart';
 import 'settings_page.dart';
 
 enum CalendarView { month, week, flow }
@@ -266,6 +268,15 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   }
 
   void _handleWidgetLaunch(Uri? uri) {
+    if (uri?.scheme == 'drawndays' && uri?.host == 'calendar') {
+      _refreshToday();
+      final destination = uri!.pathSegments.firstOrNull;
+      setState(() => _focusDate = _today);
+      _selectView(
+        destination == 'week' ? CalendarView.week : CalendarView.month,
+      );
+      return;
+    }
     _handleEditorLaunch(uri);
   }
 
@@ -311,7 +322,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
   Future<void> _syncTodayWidget() {
     return TodayHomeWidgetService.sync(
       date: _today,
-      doodle: _doodles[dateKey(_today)],
+      doodles: _doodles,
       language: widget.settings.language,
     );
   }
@@ -431,6 +442,51 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     setState(() => _focusDate = dateOnly(date));
   }
 
+  Future<bool> _saveFavoriteImmediately(
+    DateTime date,
+    Doodle doodle,
+    bool isFavorite,
+  ) async {
+    if (doodle.isEmpty) return false;
+    final key = dateKey(date);
+    final favorites = widget.settings.favoriteDateKeys.toSet();
+    final favoriteChanged = isFavorite
+        ? favorites.add(key)
+        : favorites.remove(key);
+
+    try {
+      if (isFavorite) {
+        final savedDoodle = doodle.snapshot();
+        await widget.repository.save(key, savedDoodle);
+        if (!mounted) return false;
+        setState(() => _doodles[key] = savedDoodle);
+        if (isSameDay(date, _today)) {
+          _scheduleTodayWidgetSync();
+          unawaited(
+            widget.reminderService.updateDate(
+              date: date,
+              hasDoodle: true,
+              settings: widget.settings,
+            ),
+          );
+        }
+      }
+
+      if (favoriteChanged) {
+        final applied = await widget.onSettingsChanged(
+          widget.settings.copyWith(
+            favoriteDateKeys: (favorites.toList()..sort()),
+          ),
+        );
+        if (!applied) return false;
+      }
+      return mounted;
+    } catch (error, stackTrace) {
+      debugPrint('Favori kaydedilemedi: $error\n$stackTrace');
+      return false;
+    }
+  }
+
   Future<void> _editDay(DateTime date, [Rect? targetRect]) async {
     if (isAfterDay(date, _today)) return;
     _lightHaptic();
@@ -439,12 +495,29 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       context: context,
       date: date,
       initialDoodle: _doodles[key],
+      initialFavorite: widget.settings.favoriteDateKeys.contains(key),
+      onFavoriteChanged: (doodle, isFavorite) =>
+          _saveFavoriteImmediately(date, doodle, isFavorite),
       hapticsEnabled: widget.settings.hapticsEnabled,
       language: widget.settings.language,
     );
     if (result == null || !mounted) return;
     final previousDoodle = _doodles[key];
     final resultDoodle = result.doodle;
+
+    final favorites = widget.settings.favoriteDateKeys.toSet();
+    final shouldBeFavorite = result.isFavorite && !resultDoodle.isEmpty;
+    final favoriteChanged = shouldBeFavorite
+        ? favorites.add(key)
+        : favorites.remove(key);
+    if (favoriteChanged) {
+      final applied = await widget.onSettingsChanged(
+        widget.settings.copyWith(
+          favoriteDateKeys: (favorites.toList()..sort()),
+        ),
+      );
+      if (!applied || !mounted) return;
+    }
 
     if (resultDoodle.hasSameContent(previousDoodle)) return;
 
@@ -571,6 +644,11 @@ class _CalendarHomePageState extends State<CalendarHomePage>
       _monthHeaderDoodles = <String, Doodle>{};
       _monthCanvasDoodles = <String, Doodle>{};
     });
+    if (widget.settings.favoriteDateKeys.isNotEmpty) {
+      await widget.onSettingsChanged(
+        widget.settings.copyWith(favoriteDateKeys: const <String>[]),
+      );
+    }
     _scheduleTodayWidgetSync();
     await widget.reminderService.updateDate(
       date: _today,
@@ -624,9 +702,12 @@ class _CalendarHomePageState extends State<CalendarHomePage>
         StoryShareFormat.monthGrid => StoryShareService.renderMonthGrid(
           month: shareMonth,
           doodles: _doodles,
+          language: widget.settings.language,
         ),
         StoryShareFormat.todaySquare => StoryShareService.renderTodaySquare(
+          date: _today,
           doodle: todayDoodle!,
+          language: widget.settings.language,
         ),
         StoryShareFormat.recentWeek => StoryShareService.renderRecentWeek(
           today: _today,
@@ -755,6 +836,20 @@ class _CalendarHomePageState extends State<CalendarHomePage>
     );
   }
 
+  Future<void> _openFavorites() async {
+    _selectionHaptic();
+    final selectedDate = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute<DateTime>(
+        builder: (context) => FavoritesPage(
+          doodles: _doodles,
+          favoriteDateKeys: widget.settings.favoriteDateKeys,
+          language: widget.settings.language,
+        ),
+      ),
+    );
+    if (selectedDate != null && mounted) await _editDay(selectedDate);
+  }
+
   Widget _buildCalendarViews() {
     return IndexedStack(
       index: _view.index,
@@ -862,6 +957,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                         padding: const EdgeInsets.fromLTRB(10, 4, 10, 7),
                         child: _CalendarAppBar(
                           onShare: _sharing ? null : _openStoryShare,
+                          onFavorites: _openFavorites,
                           onSettings: _openSettings,
                           strings: _s,
                           foregroundColor: drawnTheme.ink,
@@ -1132,12 +1228,14 @@ class _SaveFlightOverlay extends StatelessWidget {
 class _CalendarAppBar extends StatelessWidget {
   const _CalendarAppBar({
     required this.onShare,
+    required this.onFavorites,
     required this.onSettings,
     required this.strings,
     required this.foregroundColor,
   });
 
   final VoidCallback? onShare;
+  final VoidCallback onFavorites;
   final VoidCallback onSettings;
   final AppStrings strings;
   final Color foregroundColor;
@@ -1189,6 +1287,11 @@ class _CalendarAppBar extends StatelessWidget {
                   ),
                 ),
               ),
+              _FavoritesAppBarButton(
+                onTap: onFavorites,
+                tooltip: strings.t('Favoriler', 'Favorites'),
+              ),
+              const SizedBox(width: 8),
               _PaintedAssetButton(
                 key: const Key('open-settings'),
                 tooltip: strings.settings,
@@ -1317,6 +1420,44 @@ class _NavigationButton extends StatelessWidget {
                 color: iconColor.withValues(alpha: opacity),
                 colorBlendMode: BlendMode.srcIn,
                 filterQuality: FilterQuality.high,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FavoritesAppBarButton extends StatelessWidget {
+  const _FavoritesAppBarButton({required this.onTap, required this.tooltip});
+
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const Key('open-favorites'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(28),
+          child: SizedBox(
+            width: 54,
+            height: 64,
+            child: CustomPaint(
+              painter: const _HandDrawnIconOutlinePainter(
+                color: Color(0xFFE7A8A0),
+              ),
+              child: const Center(
+                child: HandDrawnHeart(
+                  color: Color(0xFFB64F45),
+                  filled: false,
+                  size: 27,
+                ),
               ),
             ),
           ),

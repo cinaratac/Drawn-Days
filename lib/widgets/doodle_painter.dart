@@ -106,7 +106,17 @@ class DoodlePainter extends CustomPainter {
   void _drawGeometry(Canvas canvas, _StrokeGeometry geometry, Paint paint) {
     final point = geometry.point;
     if (point != null) {
-      canvas.drawCircle(point, paint.strokeWidth / 2, paint);
+      // A line with a round cap has a diameter equal to its stroke width.
+      // Drawing a single point as a stroked circle made its outline extend on
+      // both sides of the radius, so dots appeared roughly twice as large as
+      // the line they turned into. A filled circle matches the round line cap.
+      canvas.drawCircle(
+        point,
+        paint.strokeWidth / 2,
+        Paint()
+          ..color = paint.color
+          ..style = PaintingStyle.fill,
+      );
       return;
     }
     canvas.drawPath(geometry.path!, paint);

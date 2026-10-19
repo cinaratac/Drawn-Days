@@ -37,6 +37,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Drawn Days needs permission to save your drawings to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Drawn Days needs access to your photo library to save your drawings.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -14,8 +14,7 @@ class StoreAppReviewService implements AppReviewService {
   StoreAppReviewService({InAppReview? inAppReview})
     : _inAppReview = inAppReview ?? InAppReview.instance;
 
-  // Fill this with the App Store Connect Apple ID before publishing on iOS.
-  static const String? _appStoreId = null;
+  static const String _appStoreId = '6808263452';
 
   final InAppReview _inAppReview;
 
@@ -23,7 +22,8 @@ class StoreAppReviewService implements AppReviewService {
   bool get canOpenStoreListing =>
       Platform.isAndroid ||
       Platform.isWindows ||
-      ((Platform.isIOS || Platform.isMacOS) && _appStoreId != null);
+      Platform.isIOS ||
+      Platform.isMacOS;
 
   @override
   Future<void> requestReview() async {
@@ -34,11 +34,6 @@ class StoreAppReviewService implements AppReviewService {
 
   @override
   Future<void> openStoreListing() async {
-    if ((Platform.isIOS || Platform.isMacOS) && _appStoreId == null) {
-      throw StateError(
-        'Set StoreAppReviewService._appStoreId before opening the App Store listing.',
-      );
-    }
     await _inAppReview.openStoreListing(appStoreId: _appStoreId);
   }
 }

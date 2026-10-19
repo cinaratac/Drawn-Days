@@ -8,6 +8,7 @@ import '../theme/drawn_days_theme.dart';
 import '../utils/calendar_utils.dart';
 import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
+import 'sketch_paper.dart';
 
 class WeekCalendar extends StatelessWidget {
   const WeekCalendar({
@@ -386,14 +387,8 @@ class _TapeStrip extends StatelessWidget {
   const _TapeStrip({required this.color});
   final Color color;
   @override
-  Widget build(BuildContext context) => Transform.rotate(
-    angle: -.035,
-    child: Container(
-      width: 42,
-      height: 14,
-      color: color.withValues(alpha: .82),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      SketchTape(width: 42, height: 14, angle: -.035, color: color);
 }
 
 class _WeekCardPainter extends CustomPainter {
@@ -414,26 +409,12 @@ class _WeekCardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(11, 2)
-      ..cubicTo(size.width * .35, 1, size.width * .72, 3, size.width - 10, 2)
-      ..cubicTo(size.width - 3, 4, size.width - 2, 9, size.width - 2, 15)
-      ..lineTo(size.width - 3, size.height - 11)
-      ..cubicTo(
-        size.width - 3,
-        size.height - 4,
-        size.width - 9,
-        size.height - 2,
-        size.width - 15,
-        size.height - 2,
-      )
-      ..lineTo(12, size.height - 2)
-      ..cubicTo(5, size.height - 3, 3, size.height - 8, 3, size.height - 14)
-      ..lineTo(2, 13)
-      ..cubicTo(2, 6, 5, 3, 11, 2)
-      ..close();
+    final path = SketchPaperPath.create(size);
     if (!dashed) {
-      canvas.drawShadow(path, shadow, emphasized ? 4 : 5, false);
+      canvas.drawPath(
+        SketchPaperPath.create(size, offset: const Offset(3, 4)),
+        Paint()..color = shadow,
+      );
       canvas.drawPath(path, Paint()..color = surface);
     }
     final border = Paint()
@@ -442,7 +423,10 @@ class _WeekCardPainter extends CustomPainter {
       ..strokeWidth = emphasized ? 2.6 : 1.5
       ..strokeCap = StrokeCap.round;
     if (!dashed) {
-      if (emphasized) canvas.drawPath(path, border);
+      canvas.drawPath(
+        path,
+        border..color = (emphasized ? ink : muted).withValues(alpha: .72),
+      );
       return;
     }
     for (final metric in path.computeMetrics()) {

@@ -508,6 +508,7 @@ class _MonthPageState extends State<_MonthPage> {
   final List<List<MonthDoodleLayer>> _strokeHistory =
       <List<MonthDoodleLayer>>[];
   final List<MonthDoodleLayer> _activeGestureStrokes = <MonthDoodleLayer>[];
+  bool _strokeInterrupted = false;
 
   @override
   void initState() {
@@ -644,6 +645,7 @@ class _MonthPageState extends State<_MonthPage> {
     _changedLayers.clear();
     _activeGestureStrokes.clear();
     _lastPointerGlobal = event.position;
+    _strokeInterrupted = false;
     if (_eraserEnabled) {
       _pointerLayer = hit.$1;
       _strokeHistory.clear();
@@ -658,7 +660,22 @@ class _MonthPageState extends State<_MonthPage> {
       return;
     }
     final hit = _drawingPoint(event.position);
-    if (hit == null) return;
+    if (hit == null) {
+      _strokeInterrupted = true;
+      _lastPointerGlobal = null;
+      return;
+    }
+    if (_strokeInterrupted) {
+      _pointerLayer = hit.$1;
+      if (_eraserEnabled) {
+        _eraseAt(hit.$1, hit.$2, hit.$2);
+      } else {
+        _beginStrokeAt(hit.$1, hit.$2);
+      }
+      _strokeInterrupted = false;
+      _lastPointerGlobal = event.position;
+      return;
+    }
     if (_eraserEnabled) {
       final previousPoint = _lastPointerGlobal == null
           ? hit.$2
@@ -722,6 +739,7 @@ class _MonthPageState extends State<_MonthPage> {
     _activeGestureStrokes.clear();
     _pointerLayer = null;
     _lastPointerGlobal = null;
+    _strokeInterrupted = false;
   }
 
   void _beginStrokeAt(MonthDoodleLayer layer, Offset point) {

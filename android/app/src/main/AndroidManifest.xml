@@ -2,10 +2,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <application
         android:label="Drawn Days"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -49,6 +53,28 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/drawn_days_today_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".DrawnDaysWeekWidgetProvider"
+            android:exported="true"
+            android:label="Drawn Days · Son 7 Gün">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/drawn_days_week_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".DrawnDaysMonthWidgetProvider"
+            android:exported="true"
+            android:label="Drawn Days · Ay">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/drawn_days_month_widget_info" />
         </receiver>
         <receiver
             android:exported="false"

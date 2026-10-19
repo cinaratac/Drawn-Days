@@ -20,6 +20,7 @@ class AppSettings {
     this.onboardingCompleted = false,
     this.reviewRequestCount = 0,
     this.lastReviewRequestAt,
+    this.favoriteDateKeys = const <String>[],
   });
 
   final StartViewPreference startView;
@@ -34,6 +35,7 @@ class AppSettings {
   final bool onboardingCompleted;
   final int reviewRequestCount;
   final DateTime? lastReviewRequestAt;
+  final List<String> favoriteDateKeys;
 
   AppSettings copyWith({
     StartViewPreference? startView,
@@ -48,6 +50,7 @@ class AppSettings {
     bool? onboardingCompleted,
     int? reviewRequestCount,
     DateTime? lastReviewRequestAt,
+    List<String>? favoriteDateKeys,
   }) {
     return AppSettings(
       startView: startView ?? this.startView,
@@ -62,6 +65,7 @@ class AppSettings {
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
       reviewRequestCount: reviewRequestCount ?? this.reviewRequestCount,
       lastReviewRequestAt: lastReviewRequestAt ?? this.lastReviewRequestAt,
+      favoriteDateKeys: favoriteDateKeys ?? this.favoriteDateKeys,
     );
   }
 
@@ -78,6 +82,7 @@ class AppSettings {
     'onboardingCompleted': onboardingCompleted,
     'reviewRequestCount': reviewRequestCount,
     'lastReviewRequestAt': lastReviewRequestAt?.toIso8601String(),
+    'favoriteDateKeys': favoriteDateKeys,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> json) {
@@ -115,6 +120,12 @@ class AppSettings {
       lastReviewRequestAt: rawLastReviewRequestAt is String
           ? DateTime.tryParse(rawLastReviewRequestAt)
           : null,
+      favoriteDateKeys:
+          (json['favoriteDateKeys'] as List?)
+              ?.whereType<String>()
+              .toSet()
+              .toList(growable: false) ??
+          const <String>[],
     );
   }
 }

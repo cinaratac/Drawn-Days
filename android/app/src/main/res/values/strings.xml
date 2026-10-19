@@ -3,4 +3,8 @@
     <string name="app_name">Drawn Days</string>
     <string name="drawn_days_widget_description">Bugünün görsel takvim karesi</string>
     <string name="drawn_days_widget_doodle">Bugünün çizimi</string>
+    <string name="drawn_days_widget_draw">Çizim kalemi</string>
+    <string name="drawn_days_week_widget_description">Son yedi günün çizimleri</string>
+    <string name="drawn_days_month_widget_description">Bu ayın çizim takvimi</string>
+    <string name="drawn_days_widget_open">Drawn Days uygulamasını aç</string>
 </resources>

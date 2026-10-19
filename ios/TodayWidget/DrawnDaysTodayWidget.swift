@@ -4,17 +4,21 @@ import WidgetKit
 
 private let appGroupId = "group.com.drawndays.app"
 private let widgetKind = "DrawnDaysTodayWidget"
+private let paper = Color(red: 247 / 255, green: 242 / 255, blue: 230 / 255)
+private let ink = Color(red: 36 / 255, green: 62 / 255, blue: 53 / 255)
+private let green = Color(red: 46 / 255, green: 107 / 255, blue: 80 / 255)
+private let yellow = Color(red: 244 / 255, green: 214 / 255, blue: 94 / 255)
 
 struct DrawnDaysTodayEntry: TimelineEntry {
     let date: Date
-    let imageData: Data?
+    let todayImageData: Data?
+    let weekImageData: Data?
+    let monthImageData: Data?
     let language: String
 }
 
 struct DrawnDaysTodayProvider: TimelineProvider {
-    func placeholder(in context: Context) -> DrawnDaysTodayEntry {
-        DrawnDaysTodayEntry(date: Date(), imageData: nil, language: "english")
-    }
+    func placeholder(in context: Context) -> DrawnDaysTodayEntry { entry(for: Date()) }
 
     func getSnapshot(in context: Context, completion: @escaping (DrawnDaysTodayEntry) -> Void) {
         completion(entry(for: Date()))
@@ -22,73 +26,38 @@ struct DrawnDaysTodayProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DrawnDaysTodayEntry>) -> Void) {
         let now = Date()
-        let entry = entry(for: now)
         let nextMidnight = Calendar.current.nextDate(
             after: now,
             matching: DateComponents(hour: 0, minute: 0, second: 2),
             matchingPolicy: .nextTime
         ) ?? now.addingTimeInterval(3600)
-        completion(Timeline(entries: [entry], policy: .after(nextMidnight)))
+        completion(Timeline(entries: [entry(for: now)], policy: .after(nextMidnight)))
     }
 
     private func entry(for date: Date) -> DrawnDaysTodayEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
         let storedDate = defaults?.string(forKey: "today_date_key") ?? ""
         let currentDate = Self.dateKeyFormatter.string(from: date)
-        let imageData = Self.todayImageData(
-            defaults: defaults,
-            storedDate: storedDate,
-            currentDate: currentDate,
-            date: date
-        )
+        let today = storedDate == currentDate ? Self.imageData(defaults: defaults, key: "today_doodle") : nil
         return DrawnDaysTodayEntry(
             date: date,
-            imageData: imageData,
+            todayImageData: today,
+            weekImageData: Self.imageData(defaults: defaults, key: "week_widget"),
+            monthImageData: Self.imageData(defaults: defaults, key: "month_widget"),
             language: defaults?.string(forKey: "widget_language") ?? "english"
         )
     }
 
-    private static func todayImageData(
-        defaults: UserDefaults?,
-        storedDate: String,
-        currentDate: String,
-        date: Date
-    ) -> Data? {
-        var candidateURLs: [URL] = []
-
-        if let storedPath = defaults?.string(forKey: "today_doodle"), !storedPath.isEmpty {
-            candidateURLs.append(URL(fileURLWithPath: storedPath))
+    private static func imageData(defaults: UserDefaults?, key: String) -> Data? {
+        var urls: [URL] = []
+        if let path = defaults?.string(forKey: key), !path.isEmpty {
+            urls.append(URL(fileURLWithPath: path))
         }
-        if let groupURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupId
-        ) {
-            candidateURLs.append(
-                groupURL
-                    .appendingPathComponent("home_widget", isDirectory: true)
-                    .appendingPathComponent("today_doodle.png")
-            )
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
+            urls.append(groupURL.appendingPathComponent("home_widget", isDirectory: true).appendingPathComponent("\(key).png"))
         }
-
-        for url in candidateURLs {
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-
-            // UserDefaults can be observed slightly later than the file after a
-            // widget reload. In that short window, the file modification date is
-            // the reliable fallback. It also prevents yesterday's image from
-            // appearing after midnight.
-            let belongsToToday: Bool
-            if !storedDate.isEmpty {
-                belongsToToday = storedDate == currentDate
-            } else if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-                      let modifiedAt = values.contentModificationDate {
-                belongsToToday = Calendar.current.isDate(modifiedAt, inSameDayAs: date)
-            } else {
-                belongsToToday = false
-            }
-
-            if belongsToToday, let data = try? Data(contentsOf: url), !data.isEmpty {
-                return data
-            }
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            if let data = try? Data(contentsOf: url), !data.isEmpty { return data }
         }
         return nil
     }
@@ -104,150 +73,129 @@ struct DrawnDaysTodayProvider: TimelineProvider {
 
 struct DrawnDaysTodayEntryView: View {
     let entry: DrawnDaysTodayEntry
-    @Environment(\.widgetFamily) private var widgetFamily
+    @Environment(\.widgetFamily) private var family
 
-    private var locale: Locale {
-        Locale(identifier: entry.language == "english" ? "en_US" : "tr_TR")
-    }
-
-    private var prompt: String {
-        entry.language == "english" ? "Draw today" : "Bugünü çiz"
-    }
-
-    private var day: String {
-        formattedDate("d")
-    }
-
-    private var month: String {
-        formattedDate("MMMM")
-    }
-
-    private var weekday: String {
-        formattedDate("EEEE")
-    }
-
-    private func formattedDate(_ format: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.dateFormat = format
-        return formatter.string(from: entry.date)
+    private var locale: Locale { Locale(identifier: entry.language == "english" ? "en_US" : "tr_TR") }
+    private var prompt: String { entry.language == "english" ? "Draw today" : "Bugünü çiz" }
+    private var destination: URL? {
+        switch family {
+        case .systemMedium: return URL(string: "drawndays://calendar/week?homeWidget")
+        case .systemLarge: return URL(string: "drawndays://calendar/month?homeWidget")
+        default: return URL(string: "drawndays://draw/today?homeWidget")
+        }
     }
 
     var body: some View {
         Group {
             if #available(iOSApplicationExtension 17.0, *) {
-                content
-                    .containerBackground(Color.white, for: .widget)
+                content.containerBackground(paper, for: .widget)
             } else {
-                content.background(Color.white)
+                content.background(paper)
             }
         }
-        .widgetURL(URL(string: "drawndays://draw/today?homeWidget"))
+        .widgetURL(destination)
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if widgetFamily == .systemSmall {
-            smallContent
+    @ViewBuilder private var content: some View {
+        switch family {
+        case .systemMedium:
+            artwork(entry.weekImageData, aspect: 2)
+        case .systemLarge:
+            artwork(entry.monthImageData, aspect: 1)
+        default:
+            todayCard
+        }
+    }
+
+    @ViewBuilder private func artwork(_ data: Data?, aspect: CGFloat) -> some View {
+        if let data, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(aspect, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(paper)
         } else {
-            mediumContent
+            ZStack {
+                paper
+                HandPencil().stroke(green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .frame(width: 45, height: 45)
+                    .rotationEffect(.degrees(-7))
+            }
         }
     }
 
-    private var smallContent: some View {
+    private var todayCard: some View {
         ZStack {
-            Color.white
-
-            if let data = entry.imageData,
-               let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
+            PaperTexture()
+            if let data = entry.todayImageData, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFit().padding(9)
             } else {
-                VStack(spacing: 5) {
-                    Image(systemName: "pencil.tip")
-                        .font(.system(size: 28, weight: .semibold))
-                    Text(prompt)
-                        .font(.caption2.weight(.bold))
+                VStack(spacing: 4) {
+                    HandPencil().stroke(green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        .frame(width: 38, height: 38).rotationEffect(.degrees(-7))
+                    Text(prompt).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(green)
                 }
-                .foregroundColor(Color(red: 49 / 255, green: 95 / 255, blue: 70 / 255))
             }
-
             VStack {
-                HStack(spacing: 3) {
-                    Text(day)
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                    Text(weekday.capitalized(with: locale))
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
+                HStack {
+                    Text(formatted("d"))
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                    Spacer()
+                    Text(formatted("EEE"))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                 }
-                .foregroundColor(Color(red: 37 / 255, green: 41 / 255, blue: 37 / 255))
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.84))
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(5)
+                .foregroundColor(ink)
+                Spacer()
+            }.padding(11)
+            UnevenCard().stroke(ink.opacity(0.82), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).padding(3)
+            Rectangle().fill(yellow.opacity(0.75)).frame(width: 45, height: 9).rotationEffect(.degrees(-3)).offset(y: -73)
         }
     }
 
-    private var mediumContent: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(day)
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 37 / 255, green: 41 / 255, blue: 37 / 255))
-                        .lineLimit(1)
+    private func formatted(_ format: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = format
+        return formatter.string(from: entry.date)
+    }
+}
 
-                    Text(month.capitalized(with: locale))
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 49 / 255, green: 95 / 255, blue: 70 / 255))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+private struct HandPencil: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.maxY * 0.86))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.2, y: rect.maxY * 0.62))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.7, y: rect.minY + rect.height * 0.13))
+        path.addCurve(to: CGPoint(x: rect.minX + rect.width * 0.9, y: rect.minY + rect.height * 0.35), control1: CGPoint(x: rect.minX + rect.width * 0.79, y: rect.minY), control2: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.2))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.37, y: rect.minY + rect.height * 0.79))
+        path.closeSubpath()
+        path.move(to: CGPoint(x: rect.minX + rect.width * 0.61, y: rect.minY + rect.height * 0.22))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.81, y: rect.minY + rect.height * 0.43))
+        return path
+    }
+}
 
-                    Text(weekday.capitalized(with: locale))
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color(red: 105 / 255, green: 113 / 255, blue: 106 / 255))
-                        .lineLimit(1)
+private struct UnevenCard: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 12, y: rect.minY + 2))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 8, y: rect.minY + 1), control: CGPoint(x: rect.midX, y: rect.minY - 2))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 1, y: rect.maxY - 10), control: CGPoint(x: rect.maxX + 2, y: rect.midY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 8, y: rect.maxY - 1), control: CGPoint(x: rect.midX, y: rect.maxY + 2))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 12, y: rect.minY + 2), control: CGPoint(x: rect.minX - 2, y: rect.midY))
+        return path
+    }
+}
 
-                    Spacer(minLength: 0)
+private struct PaperTexture: View {
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(paper))
+            for y in stride(from: 7.0, to: size.height, by: 14.0) {
+                for x in stride(from: 8.0, to: size.width, by: 19.0) {
+                    context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1, height: 1)), with: .color(ink.opacity(0.035)))
                 }
-                .padding(.leading, 16)
-                .padding(.trailing, 10)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color.white)
-
-                ZStack {
-                    Color.white
-
-                    if let data = entry.imageData,
-                       let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.height, height: geometry.size.height)
-                            .clipped()
-                    } else {
-                        VStack(spacing: 5) {
-                            Image(systemName: "pencil.tip")
-                                .font(.system(size: 28, weight: .semibold))
-                            Text(prompt)
-                                .font(.caption2.weight(.bold))
-                        }
-                        .foregroundColor(Color(red: 49 / 255, green: 95 / 255, blue: 70 / 255))
-                    }
-                }
-                .frame(width: geometry.size.height, height: geometry.size.height)
-                .clipped()
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 }
@@ -259,8 +207,8 @@ struct DrawnDaysTodayWidget: Widget {
             DrawnDaysTodayEntryView(entry: entry)
         }
         .configurationDisplayName("Drawn Days")
-        .description("Bugünün görsel takvim karesi")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .description("Bugünün, son 7 günün veya ayın çizimlerini gösterir.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
 }

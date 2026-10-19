@@ -4,10 +4,13 @@ import 'package:drawn_days/data/doodle_repository.dart';
 import 'package:drawn_days/data/settings_repository.dart';
 import 'package:drawn_days/main.dart';
 import 'package:drawn_days/models/app_settings.dart';
+import 'package:drawn_days/models/doodle.dart';
 import 'package:drawn_days/screens/onboarding_page.dart';
 import 'package:drawn_days/screens/settings_page.dart';
 import 'package:drawn_days/services/app_review_service.dart';
 import 'package:drawn_days/services/reminder_service.dart';
+import 'package:drawn_days/widgets/doodle_editor_sheet.dart';
+import 'package:drawn_days/widgets/hand_drawn_heart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -128,6 +131,199 @@ void main() {
     expect(find.text('O gün neye benziyordu?'), findsNothing);
     expect(find.byKey(const Key('today-empty-highlight')), findsNothing);
     expect(find.byKey(const Key('you-are-here-marker')), findsOneWidget);
+  });
+
+  testWidgets('two fingers zoom the drawing without leaving a stray stroke', (
+    tester,
+  ) async {
+    await usePhoneSize(tester);
+    final repository = MemoryDoodleRepository();
+    await tester.pumpWidget(
+      DrawnDaysApp(
+        repository: repository,
+        settingsRepository: MemorySettingsRepository(
+          completedOnboardingSettings,
+        ),
+        today: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('day-2026-08-21')));
+    await tester.pumpAndSettle();
+
+    final canvas = find.byKey(const Key('doodle-canvas'));
+    final rect = tester.getRect(canvas);
+    final first = await tester.startGesture(
+      rect.center - const Offset(20, 0),
+      pointer: 1,
+    );
+    final second = await tester.startGesture(
+      rect.center + const Offset(20, 0),
+      pointer: 2,
+    );
+    await first.moveTo(rect.center - const Offset(60, 0));
+    await second.moveTo(rect.center + const Offset(60, 0));
+    await tester.pump();
+
+    final zoomLayer = tester.widget<Transform>(
+      find.byKey(const Key('doodle-zoom-layer')),
+    );
+    expect(zoomLayer.transform.storage[0], greaterThan(1));
+
+    await first.up();
+    await second.up();
+    await tester.dragFrom(rect.center, const Offset(35, 25));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-doodle')));
+    await tester.pumpAndSettle();
+
+    final saved = await repository.loadAll();
+    expect(saved['2026-08-21']!.strokes, hasLength(1));
+  });
+
+  testWidgets('leaving the canvas does not draw along its border', (
+    tester,
+  ) async {
+    await usePhoneSize(tester);
+    final repository = MemoryDoodleRepository();
+    await tester.pumpWidget(
+      DrawnDaysApp(
+        repository: repository,
+        settingsRepository: MemorySettingsRepository(
+          completedOnboardingSettings,
+        ),
+        today: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('day-2026-08-21')));
+    await tester.pumpAndSettle();
+
+    final rect = tester.getRect(find.byKey(const Key('doodle-canvas')));
+    final gesture = await tester.startGesture(rect.center, pointer: 7);
+    await gesture.moveTo(Offset(rect.center.dx, rect.top + 14));
+    await gesture.moveTo(Offset(rect.center.dx, rect.top - 35));
+    await gesture.moveTo(Offset(rect.center.dx + 75, rect.top - 35));
+    await gesture.moveTo(Offset(rect.center.dx + 75, rect.top + 16));
+    await gesture.moveTo(Offset(rect.center.dx + 90, rect.top + 35));
+    await gesture.up();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-doodle')));
+    await tester.pumpAndSettle();
+
+    final strokes = (await repository.loadAll())['2026-08-21']!.strokes;
+    expect(strokes, hasLength(2));
+    expect(
+      strokes.expand((stroke) => stroke.points).every((point) => point.dy > 0),
+      isTrue,
+    );
+  });
+
+  testWidgets('favorites a drawing and opens it from the favorites gallery', (
+    tester,
+  ) async {
+    await usePhoneSize(tester);
+    final repository = MemoryDoodleRepository();
+    final settingsRepository = MemorySettingsRepository(
+      completedOnboardingSettings,
+    );
+    await tester.pumpWidget(
+      DrawnDaysApp(
+        repository: repository,
+        settingsRepository: settingsRepository,
+        today: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('day-2026-08-21')));
+    await tester.pumpAndSettle();
+
+    final canvasRect = tester.getRect(find.byKey(const Key('doodle-canvas')));
+    await tester.dragFrom(
+      canvasRect.centerLeft + const Offset(30, 0),
+      const Offset(70, 28),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('toggle-doodle-favorite')));
+    await tester.pumpAndSettle();
+    var editorHeart = tester.widget<HandDrawnHeart>(
+      find.descendant(
+        of: find.byKey(const Key('toggle-doodle-favorite')),
+        matching: find.byType(HandDrawnHeart),
+      ),
+    );
+    expect(editorHeart.filled, isTrue);
+
+    expect(
+      (await settingsRepository.load()).favoriteDateKeys,
+      contains('2026-08-21'),
+    );
+    expect((await repository.loadAll())['2026-08-21'], isNotNull);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(
+      (await settingsRepository.load()).favoriteDateKeys,
+      contains('2026-08-21'),
+    );
+    await tester.tap(find.byKey(const Key('open-favorites')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('favorites-page')), findsOneWidget);
+    expect(find.byKey(const Key('favorite-card-2026-08-21')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('favorite-card-2026-08-21')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('doodle-editor-page')), findsOneWidget);
+    editorHeart = tester.widget<HandDrawnHeart>(
+      find.descendant(
+        of: find.byKey(const Key('toggle-doodle-favorite')),
+        matching: find.byType(HandDrawnHeart),
+      ),
+    );
+    expect(editorHeart.filled, isTrue);
+  });
+
+  testWidgets('downloads the current drawing directly from the editor', (
+    tester,
+  ) async {
+    await usePhoneSize(tester);
+    final date = DateTime(2026, 8, 21);
+    final doodle = Doodle(
+      strokes: [
+        DoodleStroke(
+          points: const [Offset(20, 20), Offset(80, 60)],
+          colorValue: Colors.black.toARGB32(),
+          width: 6.5,
+        ),
+      ],
+    );
+    DateTime? downloadedDate;
+    Doodle? downloadedDoodle;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DoodleEditorPage(
+          date: date,
+          initialDoodle: doodle,
+          initialFavorite: false,
+          hapticsEnabled: false,
+          language: AppLanguage.english,
+          onDownload: (date, doodle) async {
+            downloadedDate = date;
+            downloadedDoodle = doodle;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('download-doodle')));
+    await tester.pumpAndSettle();
+
+    expect(downloadedDate, date);
+    expect(downloadedDoodle?.hasSameContent(doodle), isTrue);
+    expect(find.text('Drawing saved to gallery'), findsOneWidget);
   });
 
   testWidgets('opens and persists a month drawing separately', (tester) async {
