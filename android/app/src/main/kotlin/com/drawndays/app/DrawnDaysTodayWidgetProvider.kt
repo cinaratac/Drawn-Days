@@ -3,7 +3,12 @@ package com.drawndays.app
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
@@ -13,6 +18,30 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private fun renderDayNumber(context: Context, day: String): Bitmap {
+    val density = context.resources.displayMetrics.density
+    val width = (48 * density).toInt()
+    val height = (44 * density).toInt()
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val typeface = try {
+        Typeface.createFromAsset(
+            context.assets,
+            "flutter_assets/lib/assets/fonts/PatrickHand-Regular.ttf",
+        )
+    } catch (_: RuntimeException) {
+        Typeface.create("cursive", Typeface.NORMAL)
+    }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(23, 63, 50)
+        textSize = 29 * density
+        this.typeface = typeface
+    }
+    val metrics = paint.fontMetrics
+    val baseline = ((height - metrics.bottom - metrics.top) / 2f) - density
+    Canvas(bitmap).drawText(day, 2 * density, baseline, paint)
+    return bitmap
+}
+
 class DrawnDaysTodayWidgetProvider : HomeWidgetProvider() {
     override fun onUpdate(
         context: Context,
@@ -20,24 +49,17 @@ class DrawnDaysTodayWidgetProvider : HomeWidgetProvider() {
         appWidgetIds: IntArray,
         widgetData: SharedPreferences,
     ) {
-        val language = widgetData.getString("widget_language", "english") ?: "english"
-        val locale = if (language == "english") Locale.US else Locale("tr", "TR")
         val now = Date()
         val currentDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
         val storedDateKey = widgetData.getString("today_date_key", "")
         val hasDoodle = widgetData.getBoolean("has_doodle", false) &&
             storedDateKey == currentDateKey
-        val day = SimpleDateFormat("d", locale).format(now)
-        val weekday = SimpleDateFormat("EEEE", locale).format(now)
-            .replaceFirstChar { it.uppercase(locale) }
-        val prompt = if (language == "english") "Draw today" else "Bugünü çiz"
+        val day = SimpleDateFormat("d", Locale.US).format(now)
         val imagePath = widgetData.getString("today_doodle", null)
 
         appWidgetIds.forEach { widgetId ->
             val views = RemoteViews(context.packageName, R.layout.drawn_days_today_widget).apply {
-                setTextViewText(R.id.widget_day, day)
-                setTextViewText(R.id.widget_weekday, weekday)
-                setTextViewText(R.id.widget_prompt, prompt)
+                setImageViewBitmap(R.id.widget_day, renderDayNumber(context, day))
 
                 val bitmap = if (hasDoodle && imagePath != null) {
                     BitmapFactory.decodeFile(imagePath)
@@ -47,12 +69,12 @@ class DrawnDaysTodayWidgetProvider : HomeWidgetProvider() {
                 if (bitmap != null) {
                     setImageViewBitmap(R.id.widget_doodle, bitmap)
                     setViewVisibility(R.id.widget_doodle, View.VISIBLE)
-                    setViewVisibility(R.id.widget_empty_icon, View.GONE)
-                    setViewVisibility(R.id.widget_prompt, View.GONE)
+                    setViewVisibility(R.id.widget_empty_state, View.GONE)
+                    setViewVisibility(R.id.widget_tape, View.VISIBLE)
                 } else {
                     setViewVisibility(R.id.widget_doodle, View.GONE)
-                    setViewVisibility(R.id.widget_empty_icon, View.VISIBLE)
-                    setViewVisibility(R.id.widget_prompt, View.VISIBLE)
+                    setViewVisibility(R.id.widget_empty_state, View.VISIBLE)
+                    setViewVisibility(R.id.widget_tape, View.GONE)
                 }
 
                 val launchIntent = HomeWidgetLaunchIntent.getActivity(

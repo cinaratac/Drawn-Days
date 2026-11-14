@@ -4,10 +4,10 @@ import WidgetKit
 
 private let appGroupId = "group.com.drawndays.app"
 private let widgetKind = "DrawnDaysTodayWidget"
-private let paper = Color(red: 247 / 255, green: 242 / 255, blue: 230 / 255)
-private let ink = Color(red: 36 / 255, green: 62 / 255, blue: 53 / 255)
-private let green = Color(red: 46 / 255, green: 107 / 255, blue: 80 / 255)
-private let yellow = Color(red: 244 / 255, green: 214 / 255, blue: 94 / 255)
+private let paper = Color(red: 255 / 255, green: 254 / 255, blue: 248 / 255)
+private let ink = Color(red: 23 / 255, green: 63 / 255, blue: 50 / 255)
+private let green = Color(red: 49 / 255, green: 95 / 255, blue: 70 / 255)
+private let yellow = Color(red: 242 / 255, green: 215 / 255, blue: 98 / 255)
 
 struct DrawnDaysTodayEntry: TimelineEntry {
     let date: Date
@@ -76,7 +76,6 @@ struct DrawnDaysTodayEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     private var locale: Locale { Locale(identifier: entry.language == "english" ? "en_US" : "tr_TR") }
-    private var prompt: String { entry.language == "english" ? "Draw today" : "Bugünü çiz" }
     private var destination: URL? {
         switch family {
         case .systemMedium: return URL(string: "drawndays://calendar/week?homeWidget")
@@ -128,27 +127,38 @@ struct DrawnDaysTodayEntryView: View {
         ZStack {
             PaperTexture()
             if let data = entry.todayImageData, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFit().padding(9)
-            } else {
-                VStack(spacing: 4) {
-                    HandPencil().stroke(green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                        .frame(width: 38, height: 38).rotationEffect(.degrees(-7))
-                    Text(prompt).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(green)
-                }
-            }
-            VStack {
-                HStack {
-                    Text(formatted("d"))
-                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                Image(uiImage: image).resizable().scaledToFit().padding(8)
+                VStack {
+                    Rectangle()
+                        .fill(yellow.opacity(0.78))
+                        .frame(width: 42, height: 10)
+                        .rotationEffect(.degrees(-3))
+                        .offset(y: -2)
                     Spacer()
-                    Text(formatted("EEE"))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                 }
-                .foregroundColor(ink)
+            } else {
+                ZStack {
+                    Ellipse()
+                        .fill(yellow.opacity(0.72))
+                        .frame(width: 58, height: 52)
+                        .rotationEffect(.degrees(-5))
+                    HandPencil().stroke(green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        .frame(width: 35, height: 35)
+                        .rotationEffect(.degrees(-7))
+                }
+                .offset(y: 8)
+            }
+            VStack(alignment: .leading) {
+                Text(formatted("d"))
+                    .font(.custom("PatrickHand-Regular", size: 29))
+                    .foregroundColor(ink)
                 Spacer()
-            }.padding(11)
-            UnevenCard().stroke(ink.opacity(0.82), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).padding(3)
-            Rectangle().fill(yellow.opacity(0.75)).frame(width: 45, height: 9).rotationEffect(.degrees(-3)).offset(y: -73)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            UnevenCard()
+                .stroke(ink.opacity(0.62), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+                .padding(3)
         }
     }
 

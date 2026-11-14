@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
@@ -9,6 +7,7 @@ import '../utils/calendar_utils.dart';
 import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
 import 'sketch_paper.dart';
+import 'today_pencil_painter.dart';
 
 class WeekCalendar extends StatelessWidget {
   const WeekCalendar({
@@ -158,7 +157,6 @@ class _WeekDayCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(11),
               child: CustomPaint(
                 painter: _WeekCardPainter(
-                  dashed: empty && !large,
                   emphasized: large,
                   surface: context.drawnTheme.paper,
                   ink: context.drawnTheme.ink,
@@ -175,24 +173,9 @@ class _WeekDayCard extends StatelessWidget {
                           padding: doodlePadding,
                         ),
                       ),
-                    if (empty && !large)
+                    if (empty)
                       Positioned.fill(
-                        child: _EmptyDayPrompt(
-                          language: language,
-                          enabled: interactive,
-                        ),
-                      ),
-                    if (empty && large)
-                      Positioned(
-                        left: 130,
-                        right: 72,
-                        top: 18,
-                        bottom: 18,
-                        child: CustomPaint(
-                          painter: _WeekFacePainter(
-                            color: context.drawnTheme.ink,
-                          ),
-                        ),
+                        child: _EmptyDayPrompt(highlighted: today),
                       ),
                     Positioned(
                       left: large ? 17 : 10,
@@ -215,14 +198,6 @@ class _WeekDayCard extends StatelessWidget {
                         right: 0,
                         top: -5,
                         child: Center(child: _TapeStrip(color: tapeColor)),
-                      ),
-                    if (large)
-                      Positioned(
-                        right: 15,
-                        bottom: 14,
-                        child: _EditButton(
-                          onTap: interactive ? handleTap : null,
-                        ),
                       ),
                   ],
                 ),
@@ -277,81 +252,33 @@ class _DateLabel extends StatelessWidget {
 }
 
 class _EmptyDayPrompt extends StatelessWidget {
-  const _EmptyDayPrompt({required this.language, required this.enabled});
-  final AppLanguage language;
-  final bool enabled;
+  const _EmptyDayPrompt({required this.highlighted});
+
+  final bool highlighted;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final compact = constraints.maxHeight < 112;
-      final buttonSize = compact ? 36.0 : 48.0;
-      return Padding(
-        padding: EdgeInsets.only(top: compact ? 18 : 22),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: buttonSize,
-              height: buttonSize,
-              decoration: BoxDecoration(
-                color: context.drawnTheme.paper,
-                shape: BoxShape.circle,
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x1753605A),
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.edit_outlined,
-                color: enabled
-                    ? const Color(0xFF2E704F)
-                    : const Color(0xFF8C958F),
-                size: compact ? 19 : 23,
-              ),
+  Widget build(BuildContext context) => Center(
+    child: highlighted
+        ? const SizedBox(
+            width: 52,
+            height: 64,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(painter: TodayPencilHighlightPainter()),
+                ),
+                SizedBox.square(
+                  dimension: 29.365478515625,
+                  child: CustomPaint(painter: TodayPencilPainter()),
+                ),
+              ],
             ),
-            SizedBox(height: compact ? 2 : 5),
-            Text(
-              language == AppLanguage.english
-                  ? 'Draw something'
-                  : 'Bir şey çiz',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: context.drawnTheme.mutedInk,
-                fontFamily: 'PatrickHand',
-                fontSize: compact ? 13 : 15,
-                height: 1,
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-class _EditButton extends StatelessWidget {
-  const _EditButton({required this.onTap});
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFF2E704F),
-    elevation: 5,
-    shadowColor: const Color(0x55304038),
-    shape: const CircleBorder(),
-    child: InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: const SizedBox.square(
-        dimension: 47,
-        child: Icon(Icons.edit_outlined, color: Colors.white, size: 22),
-      ),
-    ),
+          )
+        : const SizedBox.square(
+            dimension: 29.365478515625,
+            child: CustomPaint(painter: TodayPencilPainter()),
+          ),
   );
 }
 
@@ -393,14 +320,12 @@ class _TapeStrip extends StatelessWidget {
 
 class _WeekCardPainter extends CustomPainter {
   const _WeekCardPainter({
-    required this.dashed,
     required this.emphasized,
     required this.surface,
     required this.ink,
     required this.muted,
     required this.shadow,
   });
-  final bool dashed;
   final bool emphasized;
   final Color surface;
   final Color ink;
@@ -410,40 +335,24 @@ class _WeekCardPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final path = SketchPaperPath.create(size);
-    if (!dashed) {
-      canvas.drawPath(
-        SketchPaperPath.create(size, offset: const Offset(3, 4)),
-        Paint()..color = shadow,
-      );
-      canvas.drawPath(path, Paint()..color = surface);
-    }
+    canvas.drawPath(
+      SketchPaperPath.create(size, offset: const Offset(3, 4)),
+      Paint()..color = shadow,
+    );
+    canvas.drawPath(path, Paint()..color = surface);
     final border = Paint()
       ..color = emphasized ? ink : muted
       ..style = PaintingStyle.stroke
       ..strokeWidth = emphasized ? 2.6 : 1.5
       ..strokeCap = StrokeCap.round;
-    if (!dashed) {
-      canvas.drawPath(
-        path,
-        border..color = (emphasized ? ink : muted).withValues(alpha: .72),
-      );
-      return;
-    }
-    for (final metric in path.computeMetrics()) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        canvas.drawPath(
-          metric.extractPath(distance, math.min(distance + 5, metric.length)),
-          border,
-        );
-        distance += 9;
-      }
-    }
+    canvas.drawPath(
+      path,
+      border..color = (emphasized ? ink : muted).withValues(alpha: .72),
+    );
   }
 
   @override
   bool shouldRepaint(covariant _WeekCardPainter oldDelegate) =>
-      oldDelegate.dashed != dashed ||
       oldDelegate.emphasized != emphasized ||
       oldDelegate.surface != surface ||
       oldDelegate.ink != ink ||
@@ -469,55 +378,5 @@ class _TapeStrokePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TapeStrokePainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
-class _WeekFacePainter extends CustomPainter {
-  const _WeekFacePainter({required this.color});
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round;
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .12, size.height * .35)
-        ..quadraticBezierTo(
-          size.width * .23,
-          size.height * .13,
-          size.width * .38,
-          size.height * .30,
-        ),
-      paint,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .62, size.height * .28)
-        ..quadraticBezierTo(
-          size.width * .78,
-          size.height * .16,
-          size.width * .91,
-          size.height * .34,
-        ),
-      paint,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .29, size.height * .69)
-        ..quadraticBezierTo(
-          size.width * .52,
-          size.height * .87,
-          size.width * .79,
-          size.height * .68,
-        ),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _WeekFacePainter oldDelegate) =>
       oldDelegate.color != color;
 }

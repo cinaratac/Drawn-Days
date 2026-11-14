@@ -27,12 +27,12 @@ class TodayHomeWidgetService {
   static const iOSWidgetKind = 'DrawnDaysTodayWidget';
   static const _imageDimension = 512;
   static const _imagePadding = 30.0;
-  static const _paper = Color(0xFFF7F2E6);
-  static const _card = Color(0xFFFFF8EE);
-  static const _ink = Color(0xFF243E35);
-  static const _mutedInk = Color(0xFF68736E);
-  static const _green = Color(0xFF2E6B50);
-  static const _yellow = Color(0xFFF4D65E);
+  static const _paper = Color(0xFFFFFEF8);
+  static const _card = Color(0xFFFFFEF8);
+  static const _ink = Color(0xFF173F32);
+  static const _mutedInk = Color(0xFF53605A);
+  static const _green = Color(0xFF315F46);
+  static const _yellow = Color(0xFFF2D762);
   static const _terracotta = Color(0xFFB5653D);
 
   static bool _initialized = false;

@@ -20,6 +20,7 @@
 		DA1000020000000000000001 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA1000350000000000000001 /* WidgetKit.framework */; };
 		DA1000030000000000000001 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA1000360000000000000001 /* SwiftUI.framework */; };
 		DA1000040000000000000001 /* TodayWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = DA1000330000000000000001 /* TodayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DA1000050000000000000001 /* PatrickHand-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = DA1000370000000000000001 /* PatrickHand-Regular.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +89,7 @@
 		DA1000340000000000000001 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		DA1000350000000000000001 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DA1000360000000000000001 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		DA1000370000000000000001 /* PatrickHand-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = PatrickHand-Regular.ttf; path = ../../lib/assets/fonts/PatrickHand-Regular.ttf; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +178,7 @@
 				DA1000300000000000000001 /* DrawnDaysTodayWidget.swift */,
 				DA1000310000000000000001 /* Info.plist */,
 				DA1000320000000000000001 /* TodayWidget.entitlements */,
+				DA1000370000000000000001 /* PatrickHand-Regular.ttf */,
 			);
 			path = TodayWidget;
 			sourceTree = "<group>";
@@ -305,6 +308,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA1000050000000000000001 /* PatrickHand-Regular.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

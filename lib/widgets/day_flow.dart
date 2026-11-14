@@ -219,16 +219,6 @@ class _StripDay extends StatelessWidget {
                   ),
                 ),
               ),
-            if (doodle == null && selected)
-              Positioned(
-                left: 7,
-                right: 7,
-                top: 22,
-                bottom: 8,
-                child: CustomPaint(
-                  painter: _SmallFacePainter(color: context.drawnTheme.ink),
-                ),
-              ),
             Positioned(
               left: 8,
               top: 3,
@@ -312,18 +302,6 @@ class _FlowDayCard extends StatelessWidget {
                                   child: DoodlePreview(
                                     doodle: doodle!,
                                     padding: doodlePadding,
-                                  ),
-                                )
-                              else
-                                Positioned(
-                                  left: 65,
-                                  right: 65,
-                                  top: 75,
-                                  bottom: 55,
-                                  child: CustomPaint(
-                                    painter: _LargeFacePainter(
-                                      color: context.drawnTheme.ink,
-                                    ),
                                   ),
                                 ),
                               Positioned(
@@ -493,28 +471,15 @@ class _StripCardPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final path = SketchPaperPath.create(size);
-    if (!empty || selected) {
-      canvas.drawPath(
-        path,
-        Paint()..color = selected ? const Color(0xFFF2D77A) : surface,
-      );
-    }
+    canvas.drawPath(
+      path,
+      Paint()..color = selected ? const Color(0xFFF2D77A) : surface,
+    );
     final border = Paint()
       ..color = selected ? ink : grid
       ..style = PaintingStyle.stroke
       ..strokeWidth = selected ? 2.5 : 1.4;
-    if (!empty || selected) {
-      canvas.drawPath(path, border);
-      return;
-    }
-    for (final metric in path.computeMetrics()) {
-      for (var d = 0.0; d < metric.length; d += 8) {
-        canvas.drawPath(
-          metric.extractPath(d, math.min(d + 4, metric.length)),
-          border,
-        );
-      }
-    }
+    canvas.drawPath(path, border);
   }
 
   @override
@@ -538,92 +503,4 @@ class _OvalPainter extends CustomPainter {
   );
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _LargeFacePainter extends CustomPainter {
-  const _LargeFacePainter({required this.color});
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 8
-      ..strokeCap = StrokeCap.round;
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .08, size.height * .28)
-        ..quadraticBezierTo(
-          size.width * .23,
-          size.height * .02,
-          size.width * .4,
-          size.height * .2,
-        ),
-      paint,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .6, size.height * .18)
-        ..quadraticBezierTo(
-          size.width * .78,
-          size.height * .04,
-          size.width * .94,
-          size.height * .26,
-        ),
-      paint,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .25, size.height * .67)
-        ..quadraticBezierTo(
-          size.width * .51,
-          size.height * .88,
-          size.width * .78,
-          size.height * .65,
-        ),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _LargeFacePainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
-class _SmallFacePainter extends CustomPainter {
-  const _SmallFacePainter({required this.color});
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(size.width * .18, size.height * .32),
-      Offset(size.width * .38, size.height * .32),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(size.width * .62, size.height * .32),
-      Offset(size.width * .82, size.height * .32),
-      paint,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(size.width * .25, size.height * .66)
-        ..quadraticBezierTo(
-          size.width * .5,
-          size.height * .84,
-          size.width * .76,
-          size.height * .64,
-        ),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _SmallFacePainter oldDelegate) =>
-      oldDelegate.color != color;
 }

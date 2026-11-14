@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -11,6 +10,7 @@ import '../utils/calendar_utils.dart';
 import '../utils/doodle_eraser.dart';
 import 'day_tap_callback.dart';
 import 'doodle_painter.dart';
+import 'today_pencil_painter.dart';
 
 const _calendarHorizontalInset = 2.0;
 
@@ -1984,7 +1984,7 @@ class _MonthDayCell extends StatelessWidget {
                   const Center(
                     child: SizedBox.square(
                       dimension: 29.365478515625,
-                      child: CustomPaint(painter: _TodayPencilPainter()),
+                      child: CustomPaint(painter: TodayPencilPainter()),
                     ),
                   ),
                 if (today && doodle != null)
@@ -2004,62 +2004,6 @@ class _MonthDayCell extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TodayPencilPainter extends CustomPainter {
-  const _TodayPencilPainter();
-
-  static const _sourceSize = 29.365478515625;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final pencil = Path()
-      ..moveTo(5, 19)
-      ..lineTo(6.2, 15)
-      ..lineTo(16.5, 4.8)
-      ..cubicTo(17.4, 3.9, 18.9, 3.9, 19.8, 4.8)
-      ..cubicTo(20.7, 5.7, 20.7, 7.2, 19.8, 8.1)
-      ..lineTo(9.4, 18.4)
-      ..lineTo(5, 19)
-      ..close();
-    final detail = Path()
-      ..moveTo(14.8, 6.6)
-      ..lineTo(18, 9.8);
-
-    final scaleX = size.width / _sourceSize;
-    final scaleY = size.height / _sourceSize;
-    final transform = Float64List.fromList(<double>[
-      1.07279 * scaleX,
-      0.150771 * scaleY,
-      0,
-      0,
-      -0.150771 * scaleX,
-      1.07279 * scaleY,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      (287.358 - 283.7391357421875) * scaleX,
-      (381.708 - 381.7078857421875) * scaleY,
-      0,
-      1,
-    ]);
-    final paint = Paint()
-      ..color = const Color(0xFF2E5D46)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2 * (scaleX < scaleY ? scaleX : scaleY)
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    canvas
-      ..drawPath(pencil.transform(transform), paint)
-      ..drawPath(detail.transform(transform), paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _YouAreHerePainter extends CustomPainter {
